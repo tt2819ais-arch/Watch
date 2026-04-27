@@ -48,7 +48,7 @@ final class ContentSourceRegistry: ObservableObject {
     }
 
     /// Aggregates results across all sources that support the given kind.
-    func aggregate(_ work: @Sendable (ContentSource) async throws -> [ContentItem], for kind: ContentKind) async -> [ContentItem] {
+    func aggregate(_ work: @escaping @Sendable (ContentSource) async throws -> [ContentItem], for kind: ContentKind) async -> [ContentItem] {
         let active = sources(for: kind)
         return await withTaskGroup(of: [ContentItem].self) { group in
             for src in active {
