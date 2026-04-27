@@ -16,6 +16,12 @@ actor KodikTokenResolver {
     private let cacheKey = "kodik.token.cached"
     private var inFlight: Task<String?, Never>?
 
+    /// Once we've validated a token, remember the result for this run so we
+    /// don't keep firing `?title=naruto` validation pings on every list call.
+    private var verifiedToken: String?
+    private var verifiedAt: Date?
+    private let verificationTTL: TimeInterval = 30 * 60
+
     private let tokensURL = URL(string:
         "https://raw.githubusercontent.com/YaNesyTortiK/AnimeParsers/refs/heads/main/kdk_tokns/tokens.json"
     )!
@@ -27,23 +33,45 @@ actor KodikTokenResolver {
         let userOverride = UserDefaults.standard.string(forKey: "kodik.token") ?? ""
         if !userOverride.isEmpty { return userOverride }
 
+        // Fast path: a token we've already validated this session.
+        if let token = verifiedToken,
+           let at = verifiedAt,
+           Date().timeIntervalSince(at) < verificationTTL {
+            return token
+        }
+
+        // Try persisted cache first without validating — promote it to verified
+        // state. If a request later fails, `markInvalid()` triggers a refresh.
         if let cached = UserDefaults.standard.string(forKey: cacheKey),
-           !cached.isEmpty,
-           await validate(cached) {
+           !cached.isEmpty {
+            verifiedToken = cached
+            verifiedAt = Date()
             return cached
         }
 
         let baked = BakedSecrets.kodikToken
         if !baked.isEmpty, await validate(baked) {
             UserDefaults.standard.set(baked, forKey: cacheKey)
+            verifiedToken = baked
+            verifiedAt = Date()
             return baked
         }
 
         if let fresh = await refresh() {
             UserDefaults.standard.set(fresh, forKey: cacheKey)
+            verifiedToken = fresh
+            verifiedAt = Date()
             return fresh
         }
         return baked
+    }
+
+    /// Called by `KodikSource` when a request fails with auth/token errors so
+    /// we drop the cached token and re-resolve next time.
+    func markInvalid() {
+        verifiedToken = nil
+        verifiedAt = nil
+        UserDefaults.standard.removeObject(forKey: cacheKey)
     }
 
     /// Force a refresh from the public token list and return the first

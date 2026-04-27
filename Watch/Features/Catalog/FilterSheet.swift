@@ -115,10 +115,9 @@ struct FilterSheet: View {
                 .foregroundStyle(theme.palette.primaryText)
             FlowLayout(spacing: 8) {
                 ForEach(availableGenres) { g in
-                    let selected = draft.genres.contains(g.name.lowercased())
+                    let selected = draft.genres.contains(g.id)
                     Button {
-                        let key = g.name.lowercased()
-                        if selected { draft.genres.remove(key) } else { draft.genres.insert(key) }
+                        if selected { draft.genres.remove(g.id) } else { draft.genres.insert(g.id) }
                     } label: {
                         Text(g.name)
                             .font(AppFont.subheadline())

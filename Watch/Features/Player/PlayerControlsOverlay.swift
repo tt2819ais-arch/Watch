@@ -122,16 +122,27 @@ struct PlayerControlsOverlay: View {
 
     private var bottomBar: some View {
         VStack(spacing: 8) {
-            Slider(value: Binding(
-                get: { vm.currentTime },
-                set: { vm.seek(to: $0) }
-            ), in: 0...max(vm.duration, 1))
+            Slider(
+                value: Binding(
+                    get: { vm.scrubbing ? vm.scrubPosition : vm.currentTime },
+                    set: { newVal in vm.scrubPosition = newVal }
+                ),
+                in: 0...max(vm.duration, 1),
+                onEditingChanged: { editing in
+                    if editing {
+                        vm.beginScrubbing()
+                    } else {
+                        vm.endScrubbing()
+                    }
+                }
+            )
             .tint(.white)
             HStack {
-                Text(format(vm.currentTime))
+                Text(format(vm.scrubbing ? vm.scrubPosition : vm.currentTime))
                 Spacer()
                 if vm.duration > 0 {
-                    Text("-\(format(max(vm.duration - vm.currentTime, 0)))")
+                    let remainTime = max(vm.duration - (vm.scrubbing ? vm.scrubPosition : vm.currentTime), 0)
+                    Text("-\(format(remainTime))")
                 }
             }
             .font(AppFont.mono(13))

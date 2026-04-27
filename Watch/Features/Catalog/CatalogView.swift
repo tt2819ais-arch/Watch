@@ -152,6 +152,7 @@ final class CatalogViewModel: ObservableObject {
             try await src.search(filter: filter, kind: kind, page: 1)
         }, for: kind)
         items = applySort(res)
+        ProfileLookup.shared.register(items)
         loading = false
     }
 
@@ -166,18 +167,21 @@ final class CatalogViewModel: ObservableObject {
     }
 
     func loadGenres() async {
-        let g = await ContentSourceRegistry.shared.aggregate({ [kind] src in
-            let genres = try await src.genres(kind: kind)
-            return genres.map { ContentItem(
-                id: "genre|\($0.id)",
-                sourceID: src.id, kind: kind,
-                title: $0.name, originalTitle: nil,
-                descriptionText: nil, posterURL: nil, bannerURL: nil,
-                year: nil, genres: [], rating: nil,
-                durationMinutes: nil, totalEpisodes: nil
-            ) }
-        }, for: kind)
-        availableGenres = g.map { Genre(id: $0.title.lowercased(), name: $0.title) }
+        // Walk every source that supports this kind and merge their genres
+        // by name, keeping the first source's id (so the catalog query maps
+        // back to a real API genre id rather than a lowercased label).
+        var merged: [String: Genre] = [:]
+        for src in ContentSourceRegistry.shared.sources(for: kind) {
+            do {
+                let list = try await src.genres(kind: kind)
+                for g in list where merged[g.name.lowercased()] == nil {
+                    merged[g.name.lowercased()] = g
+                }
+            } catch {
+                Logger.shared.warn("genres failed for \(src.id): \(error)", category: .source)
+            }
+        }
+        availableGenres = merged.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
     var activeFilterChips: [String] {
@@ -186,7 +190,8 @@ final class CatalogViewModel: ObservableObject {
         if let from = filter.yearFrom, let to = filter.yearTo { c.append("\(from)–\(to)") }
         else if let from = filter.yearFrom { c.append("≥ \(from)") }
         else if let to = filter.yearTo { c.append("≤ \(to)") }
-        c.append(contentsOf: filter.genres.map { $0.capitalized })
+        let nameByID = Dictionary(uniqueKeysWithValues: availableGenres.map { ($0.id, $0.name) })
+        c.append(contentsOf: filter.genres.map { nameByID[$0] ?? $0 })
         if filter.sort != .popularity { c.append(filter.sort.displayName) }
         return c
     }

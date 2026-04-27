@@ -35,6 +35,12 @@ final class PlayerViewModel: ObservableObject {
     @Published var sleepRemaining: TimeInterval = 0
     @Published var nextEpisodeCountdown: Int? = nil
 
+    // Scrubbing state — owned by the slider, separate from currentTime so the
+    // player's time observer doesn't fight the user's drag.
+    @Published var scrubbing: Bool = false
+    @Published var scrubPosition: Double = 0
+    private var wasPlayingBeforeScrub: Bool = false
+
     let player: AVPlayer
     let pipController: PiPController
     let settings = PlayerSettings.shared
@@ -110,6 +116,28 @@ final class PlayerViewModel: ObservableObject {
     func seek(to seconds: Double) {
         let target = CMTime(seconds: seconds, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func beginScrubbing() {
+        scrubbing = true
+        scrubPosition = currentTime
+        wasPlayingBeforeScrub = isPlaying
+        player.pause()
+        scheduleControlsHide(extra: true)
+    }
+
+    func endScrubbing() {
+        let target = scrubPosition
+        let cm = CMTime(seconds: target, preferredTimescale: 600)
+        player.seek(to: cm, toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.scrubbing = false
+                if self.wasPlayingBeforeScrub {
+                    self.applyPlaybackRate()
+                }
+            }
+        }
     }
 
     func skip(_ delta: Double) {
@@ -485,13 +513,14 @@ final class PlayerViewModel: ObservableObject {
         nextEpisodeCountdown = nil
     }
 
-    private func scheduleControlsHide() {
+    private func scheduleControlsHide(extra: Bool = false) {
         controlsHideTask?.cancel()
+        let delayNs: UInt64 = extra ? 8_000_000_000 : 4_000_000_000
         controlsHideTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            try? await Task.sleep(nanoseconds: delayNs)
             await MainActor.run {
                 guard let self else { return }
-                if self.isPlaying {
+                if self.isPlaying && !self.scrubbing {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         self.controlsVisible = false
                     }

@@ -5,6 +5,7 @@ import AVFoundation
 struct WatchApp: App {
     @StateObject private var theme = ThemeManager.shared
     @StateObject private var appState = AppState.shared
+    @UIApplicationDelegateAdaptor(WatchAppDelegate.self) private var appDelegate
 
     init() {
         configureAudioSession()
@@ -36,5 +37,12 @@ struct WatchApp: App {
         } catch {
             Logger.shared.error("AudioSession setup failed: \(error)", category: .player)
         }
+    }
+}
+
+final class WatchAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.supported
     }
 }

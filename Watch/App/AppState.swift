@@ -7,7 +7,7 @@ final class AppState: ObservableObject {
     static let shared = AppState()
 
     enum Section: String, CaseIterable, Identifiable, Codable {
-        case home, anime, movies, series, favorites, stats, settings
+        case home, anime, movies, series, profile, settings
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -15,8 +15,7 @@ final class AppState: ObservableObject {
             case .anime: return "Аниме"
             case .movies: return "Фильмы"
             case .series: return "Сериалы"
-            case .favorites: return "Избранное"
-            case .stats: return "Статистика"
+            case .profile: return "Профиль"
             case .settings: return "Настройки"
             }
         }
@@ -26,15 +25,13 @@ final class AppState: ObservableObject {
             case .anime: return "sparkles.tv.fill"
             case .movies: return "film.fill"
             case .series: return "tv.fill"
-            case .favorites: return "heart.fill"
-            case .stats: return "chart.bar.fill"
+            case .profile: return "person.crop.circle.fill"
             case .settings: return "gearshape.fill"
             }
         }
     }
 
     @Published var selectedSection: Section = .home
-    @Published var sidebarVisible: Bool = false
 
     let logger = Logger.shared
     let persistence = PersistenceService.shared

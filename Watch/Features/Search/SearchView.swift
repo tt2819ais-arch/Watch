@@ -16,6 +16,9 @@ struct SearchView: View {
         .navigationBarBackButtonHidden(false)
         .navigationTitle("Поиск")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: ContentItem.self) { item in
+            DetailView(item: item)
+        }
         .onAppear { focused = true }
         .onChange(of: vm.query) { _ in vm.fetchSuggestionsDebounced() }
         .onChange(of: vm.kind) { _ in vm.fetchSuggestionsDebounced() }
@@ -94,9 +97,6 @@ struct SearchView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .navigationDestination(for: ContentItem.self) { item in
-                DetailView(item: item)
-            }
         }
     }
 

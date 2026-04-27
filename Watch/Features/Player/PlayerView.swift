@@ -48,10 +48,12 @@ struct PlayerView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
+            OrientationLock.lock(.landscape)
             vm.start()
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            OrientationLock.lock(.all)
             vm.stop()
         }
     }

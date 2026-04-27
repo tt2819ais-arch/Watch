@@ -123,6 +123,7 @@ final class HomeViewModel: ObservableObject {
         }, for: kind)
         self[keyPath: keypath] = items
         for it in items { itemsByID[it.id] = it }
+        ProfileLookup.shared.register(items)
     }
 
     func itemFor(progress: WatchProgress) -> ContentItem? {

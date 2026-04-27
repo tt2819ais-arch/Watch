@@ -4,6 +4,8 @@ struct DetailView: View {
     @EnvironmentObject private var theme: ThemeManager
     @StateObject private var vm: DetailViewModel
     @State private var presentedEpisode: Episode?
+    @State private var showPrePlay: Bool = false
+    @State private var pendingEpisode: Episode?
 
     init(item: ContentItem, autoplayEpisodeNumber: Int? = nil) {
         _vm = StateObject(wrappedValue: DetailViewModel(item: item, autoplayEpisodeNumber: autoplayEpisodeNumber))
@@ -13,6 +15,7 @@ struct DetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 hero
+                watchButton
                 meta
                 if let desc = vm.item.descriptionText, !desc.isEmpty {
                     descriptionBlock(desc)
@@ -37,12 +40,93 @@ struct DetailView: View {
         .task {
             await vm.loadEpisodes()
             if let n = vm.autoplayEpisodeNumber, let ep = vm.episodes.first(where: { $0.number == n }) {
-                presentedEpisode = ep
+                pendingEpisode = ep
+                showPrePlay = true
+            }
+        }
+        .sheet(isPresented: $showPrePlay) {
+            if let ep = pendingEpisode {
+                PrePlayPicker(item: vm.item, episode: ep) { chosen in
+                    showPrePlay = false
+                    if let updated = chosen {
+                        pendingEpisode = updated
+                        // brief tick so the sheet dismiss animation completes before
+                        // fullScreenCover takes over the screen
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            presentedEpisode = updated
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
             }
         }
         .fullScreenCover(item: $presentedEpisode) { ep in
             PlayerView(item: vm.item, episodes: vm.episodes, initialEpisode: ep)
         }
+    }
+
+    private var watchButton: some View {
+        Button {
+            // Pick the best resume target: in-progress unwatched episode,
+            // otherwise the first one.
+            let resume = bestResumeEpisode()
+            if let ep = resume {
+                pendingEpisode = ep
+                showPrePlay = true
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 18, weight: .heavy))
+                Text(watchButtonTitle)
+                    .font(AppFont.headline())
+                Spacer()
+                if vm.episodes.count > 1, let ep = bestResumeEpisode() {
+                    Text("Серия \(ep.number)")
+                        .font(AppFont.subheadline())
+                        .foregroundStyle(theme.palette.background.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+            .background(vm.episodes.isEmpty ? theme.palette.surface : theme.palette.primaryText)
+            .foregroundStyle(vm.episodes.isEmpty ? theme.palette.secondaryText : theme.palette.background)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(vm.episodes.isEmpty)
+    }
+
+    private var watchButtonTitle: String {
+        if vm.loading && vm.episodes.isEmpty { return "Загрузка…" }
+        if vm.episodes.isEmpty { return "Нет источников" }
+        if let resume = bestResumeEpisode(),
+           let prog = ProgressService.shared.progress(for: vm.item.id, episodeID: resume.id),
+           prog.position > 30 && !prog.isFinished {
+            return "Продолжить"
+        }
+        return "Смотреть"
+    }
+
+    private func bestResumeEpisode() -> Episode? {
+        // Most recent unfinished episode by progress; fall back to the first
+        // unwatched, then the first overall.
+        let progress = ProgressService.shared
+        if let resume = vm.episodes.first(where: { ep in
+            if let p = progress.progress(for: vm.item.id, episodeID: ep.id) {
+                return !p.isFinished && p.position > 30
+            }
+            return false
+        }) {
+            return resume
+        }
+        if let firstUnwatched = vm.episodes.first(where: { ep in
+            progress.progress(for: vm.item.id, episodeID: ep.id)?.isFinished != true
+        }) {
+            return firstUnwatched
+        }
+        return vm.episodes.first
     }
 
     private var hero: some View {
@@ -131,7 +215,8 @@ struct DetailView: View {
             }
             ForEach(vm.episodes) { ep in
                 Button {
-                    presentedEpisode = ep
+                    pendingEpisode = ep
+                    showPrePlay = true
                 } label: {
                     EpisodeRow(item: vm.item, episode: ep)
                 }

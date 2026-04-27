@@ -5,8 +5,6 @@ struct SettingsView: View {
     @ObservedObject private var settings = PlayerSettings.shared
     @ObservedObject private var history = SearchHistoryService.shared
     @ObservedObject private var favorites = FavoritesService.shared
-    @State private var kodikToken: String = UserDefaults.standard.string(forKey: "kodik.token") ?? ""
-    @State private var poiskKinoToken: String = UserDefaults.standard.string(forKey: "poiskkino.token") ?? ""
     @State private var showResetAllAlert = false
 
     var body: some View {
@@ -23,7 +21,6 @@ struct SettingsView: View {
                     fontSection
                     playbackSection
                     gestureSection
-                    sourcesSection
                     storageSection
                     NavigationLink {
                         LogsView()
@@ -40,7 +37,6 @@ struct SettingsView: View {
                         .foregroundStyle(theme.palette.primaryText)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    aboutSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 32)
@@ -220,67 +216,6 @@ struct SettingsView: View {
         }
     }
 
-    private var sourcesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Источники")
-                .font(AppFont.title3())
-                .foregroundStyle(theme.palette.primaryText)
-            Text("AniLibria и PoiskKino встроены. Kodik использует публичный токен с авто-восстановлением. Здесь можно подменить любой ключ своим.")
-                .font(AppFont.subheadline())
-                .foregroundStyle(theme.palette.secondaryText)
-
-            tokenField(
-                label: "Kodik API ключ (необязательно)",
-                placeholder: "Свой kodik token (32-symbol hex)",
-                text: $kodikToken,
-                key: "kodik.token",
-                logName: "Kodik"
-            )
-            tokenField(
-                label: "PoiskKino API ключ",
-                placeholder: "X-API-KEY от api.poiskkino.dev",
-                text: $poiskKinoToken,
-                key: "poiskkino.token",
-                logName: "PoiskKino"
-            )
-        }
-    }
-
-    private func tokenField(
-        label: String,
-        placeholder: String,
-        text: Binding<String>,
-        key: String,
-        logName: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(AppFont.subheadline())
-                .foregroundStyle(theme.palette.primaryText)
-            TextField(placeholder, text: text)
-                .font(AppFont.body())
-                .padding(12)
-                .background(theme.palette.surface)
-                .foregroundStyle(theme.palette.primaryText)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .autocorrectionDisabled(true)
-                .textInputAutocapitalization(.never)
-            Button {
-                UserDefaults.standard.set(text.wrappedValue, forKey: key)
-                Logger.shared.info("\(logName) token saved (length \(text.wrappedValue.count))", category: .source)
-            } label: {
-                Text("Сохранить")
-                    .font(AppFont.button())
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(theme.palette.primaryText)
-                    .foregroundStyle(theme.palette.background)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
     private var storageSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Данные")
@@ -322,17 +257,6 @@ struct SettingsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-
-    private var aboutSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("О приложении")
-                .font(AppFont.title3())
-                .foregroundStyle(theme.palette.primaryText)
-            Text("Watch v1.0\nМинималистичный плеер для аниме, фильмов и сериалов.\nИсходники: github.com/tt2819ais-arch/Watch")
-                .font(AppFont.subheadline())
-                .foregroundStyle(theme.palette.secondaryText)
-        }
     }
 
     // MARK: - Helpers

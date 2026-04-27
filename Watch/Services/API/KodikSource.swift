@@ -126,8 +126,9 @@ final class KodikSource: ContentSource, @unchecked Sendable {
         do {
             let envelope: KodikEnvelope = try await HTTPClient.shared.post(c.url!, body: nil, as: KodikEnvelope.self)
             if let err = envelope.error, err.contains("токен") {
-                // Token went stale mid-session — refresh and retry once.
+                // Token went stale mid-session — drop the cache, refresh, retry once.
                 Logger.shared.info("Kodik token rejected, refreshing…", category: .source)
+                await KodikTokenResolver.shared.markInvalid()
                 if let fresh = await KodikTokenResolver.shared.refresh(), !fresh.isEmpty {
                     p["token"] = fresh
                     c.queryItems = p.map { URLQueryItem(name: $0.key, value: $0.value) }

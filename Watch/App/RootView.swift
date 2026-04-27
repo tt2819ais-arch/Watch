@@ -5,50 +5,45 @@ struct RootView: View {
     @EnvironmentObject private var app: AppState
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            theme.palette.background.ignoresSafeArea()
-
-            // Main content
-            mainContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .offset(x: app.sidebarVisible ? sidebarWidth : 0)
-                .disabled(app.sidebarVisible)
-                .overlay(alignment: .topLeading) {
-                    if !app.sidebarVisible {
-                        Button {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                app.sidebarVisible = true
-                            }
-                        } label: {
-                            Image(systemName: "line.3.horizontal")
-                                .font(.system(size: 18, weight: .heavy))
-                                .padding(12)
-                                .foregroundStyle(theme.palette.primaryText)
-                        }
-                        .padding(.top, 4)
-                        .padding(.leading, 4)
-                    }
+        TabView(selection: $app.selectedSection) {
+            HomeView()
+                .tabItem {
+                    Label("Главная", systemImage: "house.fill")
                 }
+                .tag(AppState.Section.home)
 
-            // Dimmer when sidebar is open
-            if app.sidebarVisible {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            app.sidebarVisible = false
-                        }
-                    }
-                    .transition(.opacity)
-            }
+            CatalogView(kind: .anime)
+                .tabItem {
+                    Label("Аниме", systemImage: "sparkles.tv.fill")
+                }
+                .tag(AppState.Section.anime)
 
-            // Sidebar
-            SidebarView()
-                .frame(width: sidebarWidth)
-                .background(theme.palette.surface.ignoresSafeArea())
-                .offset(x: app.sidebarVisible ? 0 : -sidebarWidth)
+            CatalogView(kind: .movie)
+                .tabItem {
+                    Label("Фильмы", systemImage: "film.fill")
+                }
+                .tag(AppState.Section.movies)
+
+            CatalogView(kind: .series)
+                .tabItem {
+                    Label("Сериалы", systemImage: "tv.fill")
+                }
+                .tag(AppState.Section.series)
+
+            ProfileView()
+                .tabItem {
+                    Label("Профиль", systemImage: "person.crop.circle.fill")
+                }
+                .tag(AppState.Section.profile)
+
+            SettingsView()
+                .tabItem {
+                    Label("Настройки", systemImage: "gearshape.fill")
+                }
+                .tag(AppState.Section.settings)
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: app.sidebarVisible)
+        .tint(theme.palette.primaryText)
+        .background(theme.palette.background.ignoresSafeArea())
         .dynamicTypeSize(dynamicTypeSize(for: theme.fontScale))
     }
 
@@ -57,21 +52,6 @@ struct RootView: View {
         case .compact: return .small
         case .normal:  return .large
         case .large:   return .xxLarge
-        }
-    }
-
-    private var sidebarWidth: CGFloat { 280 }
-
-    @ViewBuilder
-    private var mainContent: some View {
-        switch app.selectedSection {
-        case .home:      HomeView()
-        case .anime:     CatalogView(kind: .anime)
-        case .movies:    CatalogView(kind: .movie)
-        case .series:    CatalogView(kind: .series)
-        case .favorites: FavoritesView()
-        case .stats:     StatsView()
-        case .settings:  SettingsView()
         }
     }
 }
