@@ -44,6 +44,11 @@ final class KodikSource: ContentSource, @unchecked Sendable {
             || params["year"] != nil
             || params["genres"] != nil
             || params["anime_genres"] != nil
+        // Kodik omits poster URLs (and most metadata) unless
+        // with_material_data=true is set explicitly. Without it the catalog
+        // grid renders title-only cards with no thumbnails, which the user
+        // sees as "обложек нет".
+        params["with_material_data"] = "true"
         let raw: [KodikResult]
         if hasSelector {
             raw = try await search(parameters: params)
@@ -51,7 +56,8 @@ final class KodikSource: ContentSource, @unchecked Sendable {
             raw = try await list(parameters: [
                 "types": typesParam(for: kind),
                 "limit": "30",
-                "sort": "year"
+                "sort": "year",
+                "with_material_data": "true"
             ])
         }
         return raw.compactMap { mapToItem($0, kind: kind) }
@@ -61,7 +67,8 @@ final class KodikSource: ContentSource, @unchecked Sendable {
         let raw = try await list(parameters: [
             "types": typesParam(for: kind),
             "limit": String(limit),
-            "sort": "year"
+            "sort": "year",
+            "with_material_data": "true"
         ])
         return raw.compactMap { mapToItem($0, kind: kind) }
     }

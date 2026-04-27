@@ -47,7 +47,9 @@ struct SelfProfileView: View {
             .background(theme.palette.background.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(value: SelfProfileDest.settings) {
+                    Button {
+                        path.append(SelfProfileDest.settings)
+                    } label: {
                         Image(systemName: "gearshape.fill")
                             .foregroundStyle(theme.palette.primaryText)
                     }
@@ -130,21 +132,32 @@ struct SelfProfileView: View {
 
     private func socialNav(user: PublicUser) -> some View {
         HStack(spacing: 10) {
-            NavigationLink(value: SelfProfileDest.search) {
+            Button {
+                path.append(SelfProfileDest.search)
+            } label: {
                 pillIcon("magnifyingglass", title: "Найти")
             }
-            NavigationLink(value: SelfProfileDest.conversations) {
+            .buttonStyle(.plain)
+            Button {
+                path.append(SelfProfileDest.conversations)
+            } label: {
                 pillIcon("message.fill", title: "Чаты")
             }
-            NavigationLink(value: SocialDestination.publicProfile(nickname: user.nickname)) {
+            .buttonStyle(.plain)
+            Button {
+                path.append(SocialDestination.publicProfile(nickname: user.nickname))
+            } label: {
                 pillIcon("person.crop.circle", title: "Публ.")
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
     }
 
     private var adminLink: some View {
-        NavigationLink(value: SelfProfileDest.admin) {
+        Button {
+            path.append(SelfProfileDest.admin)
+        } label: {
             HStack {
                 Image(systemName: "shield.lefthalf.filled")
                 Text("Открыть админку")
@@ -157,6 +170,7 @@ struct SelfProfileView: View {
             .foregroundStyle(theme.palette.primaryText)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 4)
     }
 

@@ -19,45 +19,45 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text("Настройки")
-                        .font(AppFont.largeTitle())
-                        .foregroundStyle(theme.palette.primaryText)
-                        .padding(.top, 40)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Настройки")
+                    .font(AppFont.largeTitle())
+                    .foregroundStyle(theme.palette.primaryText)
+                    .padding(.top, 24)
 
-                    if auth.isAuthenticated {
-                        accountSection
-                        privacySection
-                    }
-                    themeSection
-                    accentSection
-                    fontSection
-                    playbackSection
-                    gestureSection
-                    storageSection
-                    NavigationLink {
-                        LogsView()
-                    } label: {
-                        HStack {
-                            Image(systemName: "doc.text.fill")
-                            Text("Логи приложения")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                        }
-                        .font(AppFont.body())
-                        .padding(14)
-                        .background(theme.palette.surface)
-                        .foregroundStyle(theme.palette.primaryText)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
+                if auth.isAuthenticated {
+                    accountSection
+                    privacySection
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 32)
+                themeSection
+                accentSection
+                fontSection
+                playbackSection
+                gestureSection
+                storageSection
+                NavigationLink {
+                    LogsView()
+                } label: {
+                    HStack {
+                        Image(systemName: "doc.text.fill")
+                        Text("Логи приложения")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(AppFont.body())
+                    .padding(14)
+                    .background(theme.palette.surface)
+                    .foregroundStyle(theme.palette.primaryText)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
             }
-            .background(theme.palette.background.ignoresSafeArea())
+            .padding(.horizontal, 16)
+            .padding(.bottom, 32)
         }
+        .background(theme.palette.background.ignoresSafeArea())
+        .navigationTitle("Настройки")
+        .navigationBarTitleDisplayMode(.inline)
         .alert("Сбросить всё?", isPresented: $showResetAllAlert) {
             Button("Отмена", role: .cancel) {}
             Button("Сбросить", role: .destructive) {
