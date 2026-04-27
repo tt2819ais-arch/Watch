@@ -365,6 +365,10 @@ final class PlayerViewModel: ObservableObject {
         }
         let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
+        // Re-scope the end-of-playback notification to this fresh item so a
+        // stale AVPlayerItem reaching its end (e.g. during a quality/voice
+        // swap) cannot wrongly trigger recordProgress / next-episode.
+        rebindEndObserver(to: item)
         if resumeAt > 1 {
             seek(to: resumeAt)
         }
@@ -390,9 +394,18 @@ final class PlayerViewModel: ObservableObject {
                 self?.duration = item.duration.seconds.isFinite ? item.duration.seconds : 0
             }
         }
+        rebindEndObserver(to: player.currentItem)
+    }
+
+    private func rebindEndObserver(to item: AVPlayerItem?) {
+        if let e = endObserver {
+            NotificationCenter.default.removeObserver(e)
+            endObserver = nil
+        }
+        guard let item else { return }
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
-            object: nil, queue: .main
+            object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
