@@ -39,7 +39,7 @@ struct SignUpView: View {
                         .foregroundStyle(theme.palette.primaryText)
                 }
             }
-            .onChange(of: auth.currentUser?.id) { _, newValue in
+            .onChange(of: auth.currentUser?.id) { newValue in
                 if newValue != nil { dismiss() }
             }
         }

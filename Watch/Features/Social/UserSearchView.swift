@@ -26,7 +26,7 @@ struct UserSearchView: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .foregroundStyle(theme.palette.primaryText)
-                .onChange(of: query) { _, newValue in
+                .onChange(of: query) { newValue in
                     searchTask?.cancel()
                     searchTask = Task { await runSearch(newValue) }
                 }

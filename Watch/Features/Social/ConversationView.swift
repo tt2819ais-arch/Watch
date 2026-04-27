@@ -74,7 +74,7 @@ struct ConversationView: View {
                 .padding(.vertical, 12)
             }
             .scrollIndicators(.hidden)
-            .onChange(of: messages.count) { _, _ in
+            .onChange(of: messages.count) { _ in
                 if let last = messages.last?.id {
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo(last, anchor: .bottom)

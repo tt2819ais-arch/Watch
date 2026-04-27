@@ -56,7 +56,7 @@ struct SelfProfileView: View {
             }
             .task { await auth.refreshMe() }
             .refreshable { await auth.refreshMe() }
-            .onChange(of: appState.pendingProfileNickname) { _, newValue in
+            .onChange(of: appState.pendingProfileNickname) { newValue in
                 guard let nick = newValue, !nick.isEmpty else { return }
                 path.append(SocialDestination.publicProfile(nickname: nick))
                 appState.pendingProfileNickname = nil

@@ -67,14 +67,14 @@ actor WatchAPI {
     func signup(nickname: String, password: String) async throws -> SocialTokenResponse {
         let body = ["nickname": nickname, "password": password]
         let resp: SocialTokenResponse = try await request("/auth/signup", method: "POST", body: body, requiresAuth: false)
-        await setToken(resp.accessToken)
+        setToken(resp.accessToken)
         return resp
     }
 
     func login(nickname: String, password: String) async throws -> SocialTokenResponse {
         let body = ["nickname": nickname, "password": password]
         let resp: SocialTokenResponse = try await request("/auth/login", method: "POST", body: body, requiresAuth: false)
-        await setToken(resp.accessToken)
+        setToken(resp.accessToken)
         return resp
     }
 
