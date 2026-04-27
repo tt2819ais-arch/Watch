@@ -154,7 +154,7 @@ final class PlayerViewModel: ObservableObject {
         guard let voice = currentSource?.voiceTrack else { return }
         guard let next = currentEpisode.sources.first(where: { $0.quality == q && $0.voiceTrack.id == voice.id })
             ?? currentEpisode.sources.first(where: { $0.quality == q }) else { return }
-        switchTo(next)
+        switchTo(next, preservePlayhead: true)
         if settings.rememberQuality { settings.preferredQuality = q }
     }
 
@@ -162,7 +162,7 @@ final class PlayerViewModel: ObservableObject {
         guard let q = currentSource?.quality else { return }
         guard let next = currentEpisode.sources.first(where: { $0.voiceTrack.id == v.id && $0.quality == q })
             ?? currentEpisode.sources.first(where: { $0.voiceTrack.id == v.id }) else { return }
-        switchTo(next)
+        switchTo(next, preservePlayhead: true)
     }
 
     func setPlaybackSpeed(_ value: Double) {
@@ -189,6 +189,10 @@ final class PlayerViewModel: ObservableObject {
         cancelNextCountdown()
         didAutoSkipIntro = false
         didAutoSkipOutro = false
+        // Reset the playhead so the UI doesn't briefly flash the previous
+        // episode's timestamp while the new asset finishes loading.
+        currentTime = 0
+        duration = 0
         currentEpisode = ep
         configureSource(for: ep)
         attemptResume()
@@ -351,8 +355,13 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
-    private func switchTo(_ source: VideoSource) {
-        let resumeAt = currentTime
+    private func switchTo(_ source: VideoSource, preservePlayhead: Bool = false) {
+        // Only carry the playhead over when we're swapping the underlying
+        // stream of the *same* episode (quality / voice change). When
+        // configureSource(for:) installs the source for a brand-new episode
+        // we must NOT seek to the previous episode's currentTime, otherwise
+        // episode N+1 would start at episode N's position.
+        let resumeAt = preservePlayhead ? currentTime : 0
         currentSource = source
         if isHTMLEmbed {
             return
@@ -369,7 +378,7 @@ final class PlayerViewModel: ObservableObject {
         // stale AVPlayerItem reaching its end (e.g. during a quality/voice
         // swap) cannot wrongly trigger recordProgress / next-episode.
         rebindEndObserver(to: item)
-        if resumeAt > 1 {
+        if preservePlayhead && resumeAt > 1 {
             seek(to: resumeAt)
         }
         applyPlaybackRate()
