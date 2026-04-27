@@ -118,13 +118,17 @@ final class AuthService: ObservableObject {
 
     private func saveToken(_ token: String) {
         let data = Data(token.utf8)
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
         let attrs: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keychainAccount,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
-        SecItemDelete(attrs as CFDictionary)
         let status = SecItemAdd(attrs as CFDictionary, nil)
         if status != errSecSuccess {
             // Fall back to UserDefaults if keychain isn't available

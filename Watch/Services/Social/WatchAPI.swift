@@ -103,7 +103,7 @@ actor WatchAPI {
     }
 
     func searchUsers(query: String) async throws -> [PublicUser] {
-        var c = URLComponents(url: SocialConfig.backendURL.appendingPathComponent("/users"), resolvingAgainstBaseURL: false)!
+        var c = URLComponents(url: SocialConfig.backendURL.appendingPathComponent("users"), resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "query", value: query)]
         return try await request(absolute: c.url!, method: "GET", body: Optional<EmptyBody>.none, requiresAuth: true)
     }
