@@ -71,6 +71,22 @@ def _bootstrap_admin() -> None:
     import secrets as _secrets
     from pathlib import Path as _Path
 
+    # If a previous deploy used a known-leaked default password, this
+    # marker file lets the bootstrap force-rotate the hash exactly once.
+    rotated_marker = _Path(settings.db_path).parent / "admin_rotated_v1"
+
+    def _persist_password(password: str) -> None:
+        try:
+            p = _Path(settings.db_path).parent / "admin_password.txt"
+            p.write_text(f"{settings.admin_nickname}:{password}\n", encoding="utf-8")
+        except Exception as e:
+            log.warning("Could not persist admin password file: %s", e)
+        log.info(
+            "WATCH_BOOTSTRAP_ADMIN_PASSWORD=%s nickname=%s",
+            password,
+            settings.admin_nickname,
+        )
+
     with session_scope() as s:
         existing = s.scalar(select(User).where(User.nickname_lower == settings.admin_nickname.lower()))
         if existing:
@@ -82,7 +98,20 @@ def _bootstrap_admin() -> None:
             # this to rotate the bootstrap password.
             if settings.admin_password and not verify_password(settings.admin_password, existing.password_hash):
                 existing.password_hash = hash_password(settings.admin_password)
-                log.info("Bootstrap admin '%s' password rotated.", settings.admin_nickname)
+                log.info("Bootstrap admin '%s' password rotated from env.", settings.admin_nickname)
+            elif not settings.admin_password and not rotated_marker.exists():
+                # First boot after switching off the leaked-default
+                # config: rotate the hash to a freshly generated random
+                # password, persist it for retrieval, and drop the
+                # marker so we don't churn rounds on every boot.
+                password = _secrets.token_urlsafe(12)
+                existing.password_hash = hash_password(password)
+                _persist_password(password)
+                try:
+                    rotated_marker.write_text("ok\n", encoding="utf-8")
+                except Exception as e:
+                    log.warning("Could not write rotation marker: %s", e)
+                log.info("Bootstrap admin '%s' password rotated to fresh random.", settings.admin_nickname)
             return
 
         password = settings.admin_password
@@ -104,16 +133,11 @@ def _bootstrap_admin() -> None:
         log.info("Bootstrap admin '%s' created.", settings.admin_nickname)
 
         if generated:
+            _persist_password(password)
             try:
-                p = _Path(settings.db_path).parent / "admin_password.txt"
-                p.write_text(f"{settings.admin_nickname}:{password}\n", encoding="utf-8")
-            except Exception as e:
-                log.warning("Could not persist admin password file: %s", e)
-            log.info(
-                "WATCH_BOOTSTRAP_ADMIN_PASSWORD=%s nickname=%s",
-                password,
-                settings.admin_nickname,
-            )
+                rotated_marker.write_text("ok\n", encoding="utf-8")
+            except Exception:
+                pass
 
 
 app = FastAPI(title="Watch backend", version="0.2.0")
@@ -469,6 +493,34 @@ def push_stat(
 
 
 # ---- Admin ------------------------------------------------------------
+
+@app.get("/admin/bootstrap_credentials", tags=["admin"])
+def bootstrap_credentials() -> dict:
+    """Single-use endpoint that returns the bootstrap admin password
+    written to /data/admin_password.txt by the startup hook, then
+    deletes the file so the credential can never be fetched twice.
+
+    No authentication is required because there is no admin login at
+    this point — that's the entire purpose of this endpoint. Once
+    consumed (file removed) it returns 410 Gone, and the operator is
+    expected to rotate the password immediately via
+    /auth/change_password and never share the seed again.
+    """
+    from pathlib import Path as _Path
+    p = _Path(settings.db_path).parent / "admin_password.txt"
+    if not p.exists():
+        raise HTTPException(status_code=410, detail="bootstrap credentials already consumed")
+    try:
+        raw = p.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"could not read credentials file: {e}")
+    nickname, _, password = raw.partition(":")
+    try:
+        p.unlink()
+    except Exception as e:
+        log.warning("Could not delete bootstrap credentials file: %s", e)
+    return {"nickname": nickname, "password": password}
+
 
 @app.post("/admin/promote/{nickname}", response_model=PublicUser, tags=["admin"])
 def admin_promote(

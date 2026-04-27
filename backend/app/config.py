@@ -43,11 +43,13 @@ class Settings(BaseSettings):
     jwt_ttl_hours: int = 24 * 30  # 30 days
 
     # Bootstrap admin: created on first startup if it doesn't exist yet.
-    # The default password ships with the build so a fresh deploy is
-    # immediately usable; operators can rotate it via the admin
-    # endpoints once logged in.
+    # The password is taken from WATCH_ADMIN_PASSWORD if provided; an
+    # empty default forces the bootstrap to *generate* a random one and
+    # persist it to /data/admin_password.txt — operators can read it
+    # back once via `GET /admin/bootstrap_credentials` (single-use)
+    # and then rotate it via `POST /auth/change_password`.
     admin_nickname: str = "Watch"
-    admin_password: str = "WatchAdmin-K9Xq2026"
+    admin_password: str = ""
 
     share_url_base: str = "watch://u"
 
