@@ -254,7 +254,11 @@ struct SelfProfileView: View {
     }
 
     private var localEpisodesTotal: Int? {
-        let n = stats.events.count
+        // Stat events are recorded every ~30s during playback, so plain
+        // `.count` would show ~48 for one 24-min episode. Dedupe by
+        // (itemID, episodeNumber) the same way StatsService.episodeStats
+        // already does.
+        let n = Set(stats.events.map { "\($0.itemID)::\($0.episodeNumber)" }).count
         return n > 0 ? n : nil
     }
 
