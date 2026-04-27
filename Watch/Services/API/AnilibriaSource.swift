@@ -1,250 +1,236 @@
 import Foundation
 
-/// Anilibria source — anime only, free public API.
-/// Docs: https://github.com/anilibria/docs/blob/master/api_v3.md
+/// AniLibria v1 (anilibria.top) — free public anime API.
+/// Base URL: https://anilibria.top/api/v1
+/// Storage host: https://anilibria.top (poster/preview paths are relative).
 final class AnilibriaSource: ContentSource, @unchecked Sendable {
-    let id = "anilibria"
-    let displayName = "AniLibria"
+    let id: String = "anilibria"
+    let displayName: String = "AniLibria"
 
-    private let baseURL = URL(string: "https://api.anilibria.tv/v3")!
-    private let cdnHost = "https://cache.libria.fun"
+    private let host = URL(string: "https://anilibria.top")!
+    private let api  = URL(string: "https://anilibria.top/api/v1")!
 
-    func supports(_ kind: ContentKind) -> Bool { kind == .anime }
+    func supports(_ kind: ContentKind) -> Bool {
+        kind == .anime
+    }
 
-    // MARK: - Public API
+    // MARK: - Suggestions / search
 
     func suggest(query: String, kind: ContentKind) async throws -> [ContentItem] {
-        guard kind == .anime, !query.isEmpty else { return [] }
-        return try await search(query: query, limit: 8)
+        guard kind == .anime, !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+        return try await search(query: query)
     }
 
     func search(filter: CatalogFilter, kind: ContentKind, page: Int) async throws -> [ContentItem] {
         guard kind == .anime else { return [] }
-        if !filter.query.isEmpty {
-            return try await search(query: filter.query, limit: 50)
+        if !filter.query.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Search endpoint doesn't support filters; client-side filter on top of it.
+            let raw = try await search(query: filter.query)
+            return apply(filter: filter, to: raw)
         }
-        // No query → use updates feed with simple client-side filtering.
-        let titles = try await titleUpdates(page: page, itemsPerPage: 30)
-        return applyFilter(titles, filter: filter)
+        return try await catalog(filter: filter, page: page)
     }
 
     func popular(kind: ContentKind, limit: Int) async throws -> [ContentItem] {
         guard kind == .anime else { return [] }
-        let titles = try await titleUpdates(page: 1, itemsPerPage: limit)
-        return titles
+        var components = URLComponents(url: api.appendingPathComponent("anime/catalog/releases"),
+                                       resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        let resp: ReleaseListEnvelope = try await HTTPClient.shared.get(components.url!, as: ReleaseListEnvelope.self)
+        return resp.data.map { mapToItem($0) }
     }
 
+    // MARK: - Detail / episodes
+
     func episodes(for item: ContentItem) async throws -> [Episode] {
-        guard item.sourceID == id else { return [] }
-        let parts = item.id.split(separator: "|")
-        guard parts.count == 3, let titleID = Int(parts[2]) else { return [] }
-        let dto = try await fetchTitle(id: titleID)
-        return mapEpisodes(dto)
+        guard let alias = aliasFromItemID(item.id) else { return [] }
+        let url = api.appendingPathComponent("anime/releases/\(alias)")
+        let detail: ReleaseDetail = try await HTTPClient.shared.get(url, as: ReleaseDetail.self)
+        return detail.episodes.map { mapEpisode($0) }
     }
 
     func genres(kind: ContentKind) async throws -> [Genre] {
         guard kind == .anime else { return [] }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("genres"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = []
-        guard let url = comps.url else { return [] }
-        struct Resp: Decodable {}
-        // /v3/genres returns just an array of strings.
-        let data: [String] = try await HTTPClient.shared.get(url, as: [String].self)
-        return data.map { Genre(id: $0.lowercased(), name: $0) }
+        let url = api.appendingPathComponent("anime/genres")
+        let arr: [GenreDTO] = try await HTTPClient.shared.get(url, as: [GenreDTO].self)
+        return arr.map { Genre(id: String($0.id), name: $0.name, kind: .anime) }
     }
 
     // MARK: - Internals
 
-    private func search(query: String, limit: Int) async throws -> [ContentItem] {
-        var comps = URLComponents(url: baseURL.appendingPathComponent("title/search"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "search", value: query),
-            URLQueryItem(name: "limit", value: "\(limit)"),
-            URLQueryItem(name: "filter", value: "id,code,names,description,posters,type,year,genres,season,player,status")
-        ]
-        guard let url = comps.url else { throw HTTPError.invalidURL }
-        let resp: AnilibriaSearchResponse = try await HTTPClient.shared.get(url, as: AnilibriaSearchResponse.self)
-        return resp.list.map(mapTitle)
+    private func search(query: String) async throws -> [ContentItem] {
+        var c = URLComponents(url: api.appendingPathComponent("app/search/releases"),
+                              resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "query", value: query)]
+        let raw: [ReleaseDTO] = try await HTTPClient.shared.get(c.url!, as: [ReleaseDTO].self)
+        return raw.map { mapToItem($0) }
     }
 
-    private func titleUpdates(page: Int, itemsPerPage: Int) async throws -> [ContentItem] {
-        var comps = URLComponents(url: baseURL.appendingPathComponent("title/updates"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "limit", value: "\(itemsPerPage)"),
-            URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "filter", value: "id,code,names,description,posters,type,year,genres,season,player,status")
+    private func catalog(filter: CatalogFilter, page: Int) async throws -> [ContentItem] {
+        var c = URLComponents(url: api.appendingPathComponent("anime/catalog/releases"),
+                              resolvingAgainstBaseURL: false)!
+        var qi: [URLQueryItem] = [
+            URLQueryItem(name: "page", value: String(max(1, page))),
+            URLQueryItem(name: "limit", value: "30")
         ]
-        guard let url = comps.url else { throw HTTPError.invalidURL }
-        let resp: AnilibriaSearchResponse = try await HTTPClient.shared.get(url, as: AnilibriaSearchResponse.self)
-        return resp.list.map(mapTitle)
+        if let from = filter.yearFrom { qi.append(URLQueryItem(name: "f[years][from_year]", value: String(from))) }
+        if let to = filter.yearTo   { qi.append(URLQueryItem(name: "f[years][to_year]",   value: String(to))) }
+        for g in filter.genres {
+            qi.append(URLQueryItem(name: "f[genres][]", value: g))
+        }
+        c.queryItems = qi
+        let resp: ReleaseListEnvelope = try await HTTPClient.shared.get(c.url!, as: ReleaseListEnvelope.self)
+        return resp.data.map { mapToItem($0) }
     }
 
-    private func fetchTitle(id: Int) async throws -> AnilibriaTitle {
-        var comps = URLComponents(url: baseURL.appendingPathComponent("title"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "id", value: "\(id)"),
-            URLQueryItem(name: "filter", value: "id,code,names,description,posters,type,year,genres,season,player,status")
-        ]
-        guard let url = comps.url else { throw HTTPError.invalidURL }
-        return try await HTTPClient.shared.get(url, as: AnilibriaTitle.self)
+    private func apply(filter: CatalogFilter, to items: [ContentItem]) -> [ContentItem] {
+        var arr = items
+        if let from = filter.yearFrom { arr = arr.filter { ($0.year ?? 0) >= from } }
+        if let to = filter.yearTo   { arr = arr.filter { ($0.year ?? 9999) <= to } }
+        if !filter.genres.isEmpty {
+            arr = arr.filter { item in
+                !item.genres.isEmpty && filter.genres.allSatisfy { wanted in item.genres.contains { $0.localizedCaseInsensitiveContains(wanted) } }
+            }
+        }
+        return arr
     }
 
-    // MARK: - Mapping
+    private func aliasFromItemID(_ id: String) -> String? {
+        // Composite id format: "anilibria|anime|<alias>"
+        let parts = id.split(separator: "|")
+        guard parts.count == 3, parts[0] == "anilibria" else { return nil }
+        return String(parts[2])
+    }
 
-    private func mapTitle(_ t: AnilibriaTitle) -> ContentItem {
-        let posterPath = t.posters?.medium?.url ?? t.posters?.original?.url ?? t.posters?.small?.url
-        let posterURL = posterPath.flatMap { URL(string: cdnHost + $0) }
-        let bannerURL = t.posters?.original?.url.flatMap { URL(string: cdnHost + $0) }
+    private func mapToItem(_ r: ReleaseDTO) -> ContentItem {
+        let absPoster = r.poster?.optimized?.src ?? r.poster?.src
+        let posterURL = absPoster.flatMap { absoluteURL($0) }
         return ContentItem(
-            id: ContentItem.makeID(sourceID: id, kind: .anime, originalID: "\(t.id ?? 0)"),
+            id: ContentItem.makeID(sourceID: id, kind: .anime, originalID: r.alias),
             sourceID: id,
             kind: .anime,
-            title: t.names?.ru ?? t.names?.en ?? "—",
-            originalTitle: t.names?.en,
-            descriptionText: t.description,
+            title: r.name?.main ?? r.alias,
+            originalTitle: r.name?.english,
+            descriptionText: r.description,
             posterURL: posterURL,
-            bannerURL: bannerURL,
-            year: t.season?.year,
-            genres: t.genres ?? [],
+            bannerURL: posterURL,
+            year: r.year,
+            genres: [],   // catalog/list response does not include genres for each item
             rating: nil,
             durationMinutes: nil,
-            totalEpisodes: t.player?.episodes?.last
+            totalEpisodes: r.episodesTotal
         )
     }
 
-    private func mapEpisodes(_ t: AnilibriaTitle) -> [Episode] {
-        guard let player = t.player, let host = player.host, let list = player.list else { return [] }
-        let sortedKeys = list.keys.compactMap { Int($0) }.sorted()
-        return sortedKeys.compactMap { numKey -> Episode? in
-            guard let ep = list["\(numKey)"] else { return nil }
-            return mapEpisode(ep, host: host)
-        }
-    }
-
-    private func mapEpisode(_ ep: AnilibriaEpisode, host: String) -> Episode? {
+    private func mapEpisode(_ dto: EpisodeDTO) -> Episode {
+        let voice = VoiceTrack(id: "anilibria_ru", studio: "AniLibria", language: "RU")
         var sources: [VideoSource] = []
-        let voice = VoiceTrack(id: "anilibria-ru", studio: "AniLibria", language: "ru")
-        let baseHost = host.hasPrefix("http") ? host : "https://\(host)"
-        if let hls = ep.hls {
-            if let p = hls.fhd, let url = URL(string: baseHost + p) {
-                sources.append(VideoSource(id: "fhd", url: url, quality: .fhd, voiceTrack: voice, headers: [:]))
-            }
-            if let p = hls.hd, let url = URL(string: baseHost + p) {
-                sources.append(VideoSource(id: "hd", url: url, quality: .hd, voiceTrack: voice, headers: [:]))
-            }
-            if let p = hls.sd, let url = URL(string: baseHost + p) {
-                sources.append(VideoSource(id: "sd", url: url, quality: .sd, voiceTrack: voice, headers: [:]))
-            }
+        if let s = dto.hls480, let u = stripAds(s) {
+            sources.append(VideoSource(id: "\(dto.id)_sd", url: u, quality: .sd, voiceTrack: voice, headers: [:]))
         }
-        guard !sources.isEmpty else { return nil }
-        let durationSec = ep.duration.map { Int($0) }
+        if let s = dto.hls720, let u = stripAds(s) {
+            sources.append(VideoSource(id: "\(dto.id)_hd", url: u, quality: .hd, voiceTrack: voice, headers: [:]))
+        }
+        if let s = dto.hls1080, let u = stripAds(s) {
+            sources.append(VideoSource(id: "\(dto.id)_fhd", url: u, quality: .fhd, voiceTrack: voice, headers: [:]))
+        }
+        let thumb = dto.preview?.optimized?.src ?? dto.preview?.src
         return Episode(
-            id: "\(ep.episode ?? 0)",
-            number: Int(ep.episode ?? 0),
-            title: ep.name,
-            durationSeconds: durationSec,
-            thumbnailURL: nil,
+            id: dto.id,
+            number: dto.ordinal ?? dto.sortOrder ?? 0,
+            title: dto.name,
+            durationSeconds: dto.duration,
+            thumbnailURL: thumb.flatMap { absoluteURL($0) },
             sources: sources
         )
     }
 
-    // MARK: - Filtering
-
-    private func applyFilter(_ items: [ContentItem], filter: CatalogFilter) -> [ContentItem] {
-        items.filter { item in
-            if !filter.query.isEmpty {
-                if !item.title.lowercased().contains(filter.query.lowercased()) { return false }
+    /// Override `isWithVideoAds=1` -> 0, removing the AniLibria video ad insertion
+    /// the user explicitly asked to be cut.
+    private func stripAds(_ rawURL: String) -> URL? {
+        guard var c = URLComponents(string: rawURL) else { return URL(string: rawURL) }
+        c.queryItems = c.queryItems?.map { item in
+            if item.name == "isWithVideoAds" || item.name == "isWithVideoAdsAlways" {
+                return URLQueryItem(name: item.name, value: "0")
             }
-            if let from = filter.yearFrom, let y = item.year, y < from { return false }
-            if let to = filter.yearTo, let y = item.year, y > to { return false }
-            if !filter.genres.isEmpty {
-                let lower = item.genres.map { $0.lowercased() }
-                if !filter.genres.contains(where: { lower.contains($0.lowercased()) }) {
-                    return false
-                }
-            }
-            return true
+            return item
         }
+        return c.url
+    }
+
+    private func absoluteURL(_ path: String) -> URL? {
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return URL(string: path)
+        }
+        return URL(string: path, relativeTo: host)?.absoluteURL
     }
 }
 
 // MARK: - DTOs
 
-private struct AnilibriaSearchResponse: Decodable {
-    let list: [AnilibriaTitle]
+private struct ReleaseListEnvelope: Decodable {
+    let data: [ReleaseDTO]
+    let meta: MetaDTO?
 }
 
-private struct AnilibriaTitle: Decodable {
-    let id: Int?
-    let code: String?
-    let names: AnilibriaNames?
-    let description: String?
-    let posters: AnilibriaPosters?
-    let year: Int?
-    let genres: [String]?
-    let season: AnilibriaSeason?
-    let player: AnilibriaPlayer?
-    let status: AnilibriaStatus?
-}
-
-private struct AnilibriaStatus: Decodable {
-    let string: String?
-}
-
-private struct AnilibriaNames: Decodable {
-    let ru: String?
-    let en: String?
-}
-
-private struct AnilibriaPosters: Decodable {
-    let small: AnilibriaPoster?
-    let medium: AnilibriaPoster?
-    let original: AnilibriaPoster?
-}
-
-private struct AnilibriaPoster: Decodable {
-    let url: String
-}
-
-private struct AnilibriaSeason: Decodable {
-    let year: Int?
-    let weekDay: Int?
-    let string: String?
-
-    enum CodingKeys: String, CodingKey {
-        case year
-        case weekDay = "week_day"
-        case string
+private struct MetaDTO: Decodable {
+    let pagination: Pagination?
+    struct Pagination: Decodable {
+        let total: Int?
+        let currentPage: Int?
+        let totalPages: Int?
     }
 }
 
-private struct AnilibriaPlayer: Decodable {
-    let host: String?
-    let episodes: AnilibriaPlayerEpisodes?
-    let list: [String: AnilibriaEpisode]?
+private struct ReleaseDTO: Decodable {
+    let id: Int
+    let alias: String
+    let year: Int?
+    let name: NameDTO?
+    let poster: PosterDTO?
+    let description: String?
+    let episodesTotal: Int?
+    let episodes: [EpisodeDTO]?
 }
 
-private struct AnilibriaPlayerEpisodes: Decodable {
-    let first: Int?
-    let last: Int?
-    let string: String?
+private struct NameDTO: Decodable {
+    let main: String?
+    let english: String?
+    let alternative: String?
 }
 
-private struct AnilibriaEpisode: Decodable {
-    let episode: Double?
+private struct PosterDTO: Decodable {
+    let src: String?
+    let optimized: PosterDTO?
+}
+
+private struct EpisodeDTO: Decodable {
+    let id: String
     let name: String?
-    let uuid: String?
-    let createdTimestamp: Int?
-    let preview: String?
-    let skips: AnilibriaSkips?
-    let hls: AnilibriaHLS?
-    let duration: Double?
+    let ordinal: Int?
+    let sortOrder: Int?
+    let duration: Int?
+    let preview: PreviewDTO?
+    let hls480: String?
+    let hls720: String?
+    let hls1080: String?
 }
 
-private struct AnilibriaSkips: Decodable {}
+private struct PreviewDTO: Decodable {
+    let src: String?
+    let optimized: PreviewDTO?
+}
 
-private struct AnilibriaHLS: Decodable {
-    let sd: String?
-    let hd: String?
-    let fhd: String?
+private struct ReleaseDetail: Decodable {
+    let id: Int
+    let alias: String
+    let episodes: [EpisodeDTO]
+}
+
+private struct GenreDTO: Decodable {
+    let id: Int
+    let name: String
 }

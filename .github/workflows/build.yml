@@ -45,6 +45,14 @@ jobs:
           xcodegen generate
           ls -la
 
+      - name: Inject build-time secrets
+        env:
+          POISKKINO_API_TOKEN: ${{ secrets.POISKKINO_API_TOKEN }}
+          KODIK_API_TOKEN: ${{ secrets.KODIK_API_TOKEN }}
+        run: |
+          set -e
+          python3 Tools/inject_secrets.py
+
       - name: Build archive (no signing)
         run: |
           set -o pipefail

@@ -1,244 +1,338 @@
 import Foundation
 
-/// Kodik source — anime + movies + series. Requires an API token, which the
-/// user provides in Settings. If no token is set, the source acts as a no-op
-/// (returns empty results) but does not throw.
-///
-/// Docs: https://kodikapi.com/
+/// Kodik (kodik-api.com) — anime / movies / series streams via embedded
+/// iframe. Token can be the public fallback baked into BakedSecrets, or a
+/// user-provided override via Settings.
 final class KodikSource: ContentSource, @unchecked Sendable {
-    let id = "kodik"
-    let displayName = "Kodik"
+    let id: String = "kodik"
+    let displayName: String = "Kodik"
 
-    private let baseURL = URL(string: "https://kodikapi.com")!
+    private let api = URL(string: "https://kodik-api.com")!
 
     func supports(_ kind: ContentKind) -> Bool { true }
 
-    private var token: String? {
-        let raw = UserDefaults.standard.string(forKey: "kodik.token") ?? ""
-        return raw.isEmpty ? nil : raw
-    }
-
-    // MARK: - Public
+    // MARK: - Search / suggestions
 
     func suggest(query: String, kind: ContentKind) async throws -> [ContentItem] {
-        guard token != nil, !query.isEmpty else { return [] }
-        return try await searchKodik(query: query, kind: kind, limit: 8)
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        let raw = try await search(parameters: ["title": trimmed, "limit": "20"])
+        return raw.compactMap { mapToItem($0, kind: kind) }
     }
 
     func search(filter: CatalogFilter, kind: ContentKind, page: Int) async throws -> [ContentItem] {
-        guard token != nil else { return [] }
-        if !filter.query.isEmpty {
-            return try await searchKodik(query: filter.query, kind: kind, limit: 50)
+        var params: [String: String] = ["limit": "30"]
+        let trimmed = filter.query.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { params["title"] = trimmed }
+        if let from = filter.yearFrom, let to = filter.yearTo {
+            params["year"] = "\(from)-\(to)"
+        } else if let y = filter.yearFrom ?? filter.yearTo {
+            params["year"] = String(y)
         }
-        return try await listKodik(filter: filter, kind: kind, page: page)
+        if !filter.genres.isEmpty {
+            params[kind == .anime ? "anime_genres" : "genres"] = filter.genres.joined(separator: ",")
+        }
+        params["types"] = typesParam(for: kind)
+        let raw = try await search(parameters: params)
+        return raw.compactMap { mapToItem($0, kind: kind) }
     }
 
     func popular(kind: ContentKind, limit: Int) async throws -> [ContentItem] {
-        guard token != nil else { return [] }
-        return try await listKodik(filter: CatalogFilter(), kind: kind, page: 1, limit: limit)
+        let raw = try await list(parameters: [
+            "types": typesParam(for: kind),
+            "limit": String(limit),
+            "sort": "year"
+        ])
+        return raw.compactMap { mapToItem($0, kind: kind) }
     }
 
+    // MARK: - Detail / episodes
+
     func episodes(for item: ContentItem) async throws -> [Episode] {
-        guard item.sourceID == id, let token else { return [] }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("search"), resolvingAgainstBaseURL: false)!
-        let parts = item.id.split(separator: "|")
-        guard parts.count == 3 else { return [] }
-        let originalID = String(parts[2])
-        comps.queryItems = [
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "id", value: originalID),
-            URLQueryItem(name: "with_episodes", value: "true"),
-            URLQueryItem(name: "with_seasons", value: "true")
+        // Direct lookup by Kodik internal id.
+        if let originalID = parseOriginalID(item.id) {
+            let raw = try await search(parameters: [
+                "id": originalID,
+                "with_seasons": "true",
+                "with_episodes": "true"
+            ])
+            return buildEpisodes(from: raw)
+        }
+        // Cross-source lookup: PoiskKino → Kodik via kinopoisk_id.
+        if item.sourceID == "poiskkino", let kpID = poiskkinoOriginalID(from: item.id) {
+            return try await episodesByKinopoiskID(kpID)
+        }
+        // Last-resort: search by title.
+        return try await episodesByTitle(item.title, year: item.year)
+    }
+
+    /// Look up Kodik streams for a Kinopoisk id.
+    func episodesByKinopoiskID(_ kpID: String) async throws -> [Episode] {
+        let raw = try await search(parameters: [
+            "kinopoisk_id": kpID,
+            "with_seasons": "true",
+            "with_episodes": "true"
+        ])
+        return buildEpisodes(from: raw)
+    }
+
+    /// Fuzzy fallback: search by title.
+    func episodesByTitle(_ title: String, year: Int?) async throws -> [Episode] {
+        var params: [String: String] = [
+            "title": title,
+            "with_seasons": "true",
+            "with_episodes": "true",
+            "limit": "10"
         ]
-        guard let url = comps.url else { return [] }
-        let resp: KodikSearchResponse = try await HTTPClient.shared.get(url, as: KodikSearchResponse.self)
-        guard let first = resp.results.first else { return [] }
-        return mapEpisodes(first)
+        if let year { params["year"] = String(year) }
+        let raw = try await search(parameters: params)
+        return buildEpisodes(from: raw)
+    }
+
+    private func poiskkinoOriginalID(from compositeID: String) -> String? {
+        let parts = compositeID.split(separator: "|")
+        guard parts.count == 3, parts[0] == "poiskkino" else { return nil }
+        return String(parts[2])
     }
 
     func genres(kind: ContentKind) async throws -> [Genre] {
-        guard let token else { return [] }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("genres"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "types", value: kindToTypes(kind))
-        ]
-        guard let url = comps.url else { return [] }
-        let resp: KodikGenresResponse = try await HTTPClient.shared.get(url, as: KodikGenresResponse.self)
-        return resp.results.map { Genre(id: $0.title.lowercased(), name: $0.title) }
-    }
-
-    // MARK: - Helpers
-
-    private func searchKodik(query: String, kind: ContentKind, limit: Int) async throws -> [ContentItem] {
-        guard let token else { return [] }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("search"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "title", value: query),
-            URLQueryItem(name: "limit", value: "\(limit)"),
-            URLQueryItem(name: "types", value: kindToTypes(kind)),
-            URLQueryItem(name: "with_material_data", value: "true")
-        ]
-        guard let url = comps.url else { return [] }
-        let resp: KodikSearchResponse = try await HTTPClient.shared.get(url, as: KodikSearchResponse.self)
-        return resp.results.map(mapItem(_:))
-    }
-
-    private func listKodik(filter: CatalogFilter, kind: ContentKind, page: Int, limit: Int = 30) async throws -> [ContentItem] {
-        guard let token else { return [] }
-        var comps = URLComponents(url: baseURL.appendingPathComponent("list"), resolvingAgainstBaseURL: false)!
-        var query: [URLQueryItem] = [
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "limit", value: "\(limit)"),
-            URLQueryItem(name: "types", value: kindToTypes(kind)),
-            URLQueryItem(name: "with_material_data", value: "true"),
-            URLQueryItem(name: "sort", value: kodikSort(filter.sort))
-        ]
-        if let from = filter.yearFrom, let to = filter.yearTo {
-            query.append(URLQueryItem(name: "year", value: "\(from)-\(to)"))
-        } else if let from = filter.yearFrom {
-            query.append(URLQueryItem(name: "year", value: "\(from)"))
-        }
-        if !filter.genres.isEmpty {
-            query.append(URLQueryItem(name: "genres", value: filter.genres.joined(separator: ",")))
-        }
-        comps.queryItems = query
-        guard let url = comps.url else { return [] }
-        let resp: KodikSearchResponse = try await HTTPClient.shared.get(url, as: KodikSearchResponse.self)
-        return resp.results.map(mapItem(_:))
-    }
-
-    private func kindToTypes(_ kind: ContentKind) -> String {
+        // Kodik does not expose a /genres endpoint; we return a curated list.
         switch kind {
-        case .anime:  return "anime,anime-serial"
-        case .movie:  return "foreign-movie,russian-movie,soviet-cartoon,foreign-cartoon,russian-cartoon"
-        case .series: return "foreign-tv-show,russian-tv-show,soviet-tv-show,documentary-tv-show"
+        case .anime:
+            return defaultAnimeGenres
+        case .movie, .series:
+            return defaultMovieGenres
         }
     }
 
-    private func kodikSort(_ s: CatalogFilter.Sort) -> String {
-        switch s {
-        case .popularity: return "shikimori_rating"
-        case .recent:     return "updated_at"
-        case .year:       return "year"
-        case .rating:     return "kinopoisk_rating"
-        case .name:       return "title"
+    // MARK: - HTTP
+
+    private func search(parameters: [String: String]) async throws -> [KodikResult] {
+        try await postCollection(path: "/search", parameters: parameters)
+    }
+
+    private func list(parameters: [String: String]) async throws -> [KodikResult] {
+        try await postCollection(path: "/list", parameters: parameters)
+    }
+
+    private func postCollection(path: String, parameters: [String: String]) async throws -> [KodikResult] {
+        var p = parameters
+        p["token"] = await KodikTokenResolver.shared.currentToken()
+        guard !p["token"]!.isEmpty else { return [] }
+
+        var c = URLComponents(url: api.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        c.queryItems = p.map { URLQueryItem(name: $0.key, value: $0.value) }
+
+        do {
+            let envelope: KodikEnvelope = try await HTTPClient.shared.post(c.url!, body: nil, as: KodikEnvelope.self)
+            if let err = envelope.error, err.contains("токен") {
+                // Token went stale mid-session — refresh and retry once.
+                Logger.shared.info("Kodik token rejected, refreshing…", category: .source)
+                if let fresh = await KodikTokenResolver.shared.refresh(), !fresh.isEmpty {
+                    p["token"] = fresh
+                    c.queryItems = p.map { URLQueryItem(name: $0.key, value: $0.value) }
+                    let retry: KodikEnvelope = try await HTTPClient.shared.post(c.url!, body: nil, as: KodikEnvelope.self)
+                    return retry.results ?? []
+                }
+                return []
+            }
+            return envelope.results ?? []
+        } catch {
+            throw error
         }
     }
 
     // MARK: - Mapping
 
-    private func mapItem(_ r: KodikResult) -> ContentItem {
-        let kind: ContentKind = {
-            if r.type?.contains("anime") == true { return .anime }
-            if r.type?.contains("movie") == true { return .movie }
-            return .series
-        }()
-        let poster: URL? = r.materialData?.posterURL.flatMap { URL(string: $0) }
+    private func typesParam(for kind: ContentKind) -> String {
+        switch kind {
+        case .anime: return "anime,anime-serial"
+        case .movie: return "film,foreign-movie,soviet-cartoon,foreign-cartoon,russian-cartoon"
+        case .series: return "foreign-serial,russian-serial,cartoon-serial"
+        }
+    }
+
+    private func mapToItem(_ r: KodikResult, kind: ContentKind) -> ContentItem? {
+        let resolvedKind = inferKind(from: r.type) ?? kind
+        guard supports(resolvedKind) else { return nil }
+        let title = r.title ?? r.titleOrig ?? r.otherTitle ?? "—"
         return ContentItem(
-            id: ContentItem.makeID(sourceID: id, kind: kind, originalID: r.id ?? ""),
+            id: ContentItem.makeID(sourceID: id, kind: resolvedKind, originalID: r.id ?? title),
             sourceID: id,
-            kind: kind,
-            title: r.title ?? r.titleOrig ?? "—",
+            kind: resolvedKind,
+            title: title,
             originalTitle: r.titleOrig,
-            descriptionText: r.materialData?.description,
-            posterURL: poster,
-            bannerURL: poster,
+            descriptionText: nil,
+            posterURL: r.materialData?.posterUrl.flatMap(URL.init(string:))
+                ?? r.screenshots?.first.flatMap(URL.init(string:)),
+            bannerURL: r.materialData?.posterUrl.flatMap(URL.init(string:)),
             year: r.year,
-            genres: r.materialData?.allGenres ?? [],
-            rating: r.materialData?.shikimoriRating ?? r.materialData?.kinopoiskRating,
-            durationMinutes: r.materialData?.duration,
-            totalEpisodes: r.lastEpisode
+            genres: r.materialData?.animeGenres ?? r.materialData?.genres ?? [],
+            rating: r.materialData?.kinopoiskRating ?? r.materialData?.imdbRating,
+            durationMinutes: nil,
+            totalEpisodes: r.episodesCount
         )
     }
 
-    /// Kodik returns embed iframe URLs, not direct video files. Real apps wrap
-    /// Kodik via WebView. For the stubbed implementation we expose the iframe
-    /// URL as a single source of unknown quality. Player will fall back to
-    /// a built-in WebView player when scheme is `https` but file is HTML.
-    private func mapEpisodes(_ r: KodikResult) -> [Episode] {
-        var episodes: [Episode] = []
-        guard let link = r.link, let baseURL = URL(string: link.hasPrefix("http") ? link : "https:\(link)") else {
-            return []
+    private func inferKind(from rawType: String?) -> ContentKind? {
+        guard let raw = rawType else { return nil }
+        if raw.contains("anime") { return .anime }
+        if raw.contains("serial") { return .series }
+        if raw.contains("film") || raw.contains("movie") || raw.contains("cartoon") {
+            return raw.contains("serial") ? .series : .movie
         }
-        let voice = VoiceTrack(
-            id: "kodik-\(r.translation?.id ?? 0)",
-            studio: r.translation?.title ?? "Kodik",
-            language: "ru"
-        )
-        if let s = r.seasons {
-            for (_, season) in s.sorted(by: { ($0.key) < ($1.key) }) {
-                guard let eps = season.episodes else { continue }
-                for (epKey, _) in eps.sorted(by: { ($0.key) < ($1.key) }) {
-                    let n = Int(epKey) ?? episodes.count + 1
-                    episodes.append(Episode(
-                        id: "s\(season.title ?? "1")e\(n)",
-                        number: n,
-                        title: nil,
-                        durationSeconds: nil,
-                        thumbnailURL: nil,
-                        sources: [VideoSource(id: "kodik", url: baseURL, quality: .hd, voiceTrack: voice, headers: [:])]
-                    ))
-                }
-            }
-        } else {
-            // Single movie / single video.
-            episodes.append(Episode(
-                id: "1",
-                number: 1,
-                title: nil,
-                durationSeconds: r.materialData?.duration.map { $0 * 60 },
-                thumbnailURL: nil,
-                sources: [VideoSource(id: "kodik", url: baseURL, quality: .hd, voiceTrack: voice, headers: [:])]
-            ))
-        }
-        return episodes
+        return nil
     }
+
+    private func parseOriginalID(_ compositeID: String) -> String? {
+        let parts = compositeID.split(separator: "|")
+        guard parts.count == 3, parts[0] == id else { return nil }
+        return String(parts[2])
+    }
+
+    private func buildEpisodes(from results: [KodikResult]) -> [Episode] {
+        var byNumber: [Int: [VideoSource]] = [:]
+        for r in results {
+            guard let link = r.absoluteLink else { continue }
+            let voice = VoiceTrack(
+                id: "kodik_\(r.translation?.id ?? 0)",
+                studio: r.translation?.title ?? "Kodik",
+                language: (r.translation?.type ?? "") == "subtitles" ? "субтитры" : "RU"
+            )
+            // Each translation may have multiple episodes; if none, treat as single-file (movie).
+            if let seasons = r.seasons, !seasons.isEmpty {
+                for season in seasons.values {
+                    for (numStr, episodeURL) in (season.episodes ?? [:]) {
+                        let n = Int(numStr) ?? 0
+                        let url = absoluteIframeURL(from: episodeURL) ?? link
+                        var arr = byNumber[n, default: []]
+                        arr.append(VideoSource(
+                            id: "\(r.id ?? "")_\(n)_\(voice.id)",
+                            url: url,
+                            quality: parseQuality(r.quality),
+                            voiceTrack: voice,
+                            headers: [:]
+                        ))
+                        byNumber[n] = arr
+                    }
+                }
+            } else {
+                let n = r.lastEpisode ?? 1
+                var arr = byNumber[n, default: []]
+                arr.append(VideoSource(
+                    id: "\(r.id ?? "")_\(n)_\(voice.id)",
+                    url: link,
+                    quality: parseQuality(r.quality),
+                    voiceTrack: voice,
+                    headers: [:]
+                ))
+                byNumber[n] = arr
+            }
+        }
+        return byNumber
+            .sorted { $0.key < $1.key }
+            .map { (num, sources) in
+                Episode(
+                    id: "kodik_ep_\(num)",
+                    number: num,
+                    title: nil,
+                    durationSeconds: nil,
+                    thumbnailURL: nil,
+                    sources: sources
+                )
+            }
+    }
+
+    private func parseQuality(_ q: String?) -> VideoQuality {
+        guard let q else { return .hd }
+        let s = q.lowercased()
+        if s.contains("2160") || s.contains("4k") { return .uhd }
+        if s.contains("1080") { return .fhd }
+        if s.contains("720")  { return .hd }
+        return .sd
+    }
+
+    private func absoluteIframeURL(from raw: String) -> URL? {
+        if raw.hasPrefix("//") { return URL(string: "https:" + raw) }
+        return URL(string: raw)
+    }
+
+    // Curated genre list (Kodik has no genres endpoint).
+    private let defaultAnimeGenres: [Genre] = [
+        "Сёнен", "Сёдзе", "Романтика", "Комедия", "Драма", "Боевик", "Приключения",
+        "Фэнтези", "Меха", "Спорт", "Школа", "Сверхъестественное", "Хоррор", "Спокон",
+        "Этти", "Гарем", "Сейнен", "Йонкома"
+    ].map { Genre(id: $0, name: $0, kind: .anime) }
+
+    private let defaultMovieGenres: [Genre] = [
+        "Боевик", "Драма", "Комедия", "Криминал", "Детектив", "Триллер", "Ужасы",
+        "Фантастика", "Фэнтези", "Мелодрама", "Военный", "Биография", "История",
+        "Приключения", "Семейный", "Спорт", "Документальный", "Мультфильм", "Аниме"
+    ].map { Genre(id: $0, name: $0, kind: .movie) }
 }
 
 // MARK: - DTOs
 
-private struct KodikSearchResponse: Decodable {
-    let results: [KodikResult]
+private struct KodikEnvelope: Decodable {
+    let total: Int?
+    let results: [KodikResult]?
+    let nextPage: String?
+    let prevPage: String?
+    let error: String?
 }
 
 private struct KodikResult: Decodable {
     let id: String?
+    let type: String?
+    let link: String?
     let title: String?
     let titleOrig: String?
-    let type: String?
-    let year: Int?
-    let link: String?
-    let lastEpisode: Int?
+    let otherTitle: String?
     let translation: KodikTranslation?
-    let materialData: KodikMaterialData?
+    let year: Int?
+    let lastSeason: Int?
+    let lastEpisode: Int?
+    let episodesCount: Int?
+    let kinopoiskId: String?
+    let imdbId: String?
+    let shikimoriId: String?
+    let quality: String?
+    let screenshots: [String]?
+    let materialData: KodikMaterial?
     let seasons: [String: KodikSeason]?
+
+    var absoluteLink: URL? {
+        guard let l = link else { return nil }
+        return l.hasPrefix("//") ? URL(string: "https:" + l) : URL(string: l)
+    }
 }
 
 private struct KodikTranslation: Decodable {
     let id: Int?
     let title: String?
+    let type: String?
 }
 
 private struct KodikSeason: Decodable {
-    let title: String?
+    let link: String?
     let episodes: [String: String]?
 }
 
-private struct KodikMaterialData: Decodable {
-    let posterURL: String?
+private struct KodikMaterial: Decodable {
+    let title: String?
+    let animeTitle: String?
+    let titleEn: String?
+    let otherTitles: [String]?
+    let posterUrl: String?
+    let animePosterUrl: String?
     let description: String?
-    let shikimoriRating: Double?
+    let animeDescription: String?
     let kinopoiskRating: Double?
+    let imdbRating: Double?
+    let shikimoriRating: Double?
+    let year: Int?
+    let countries: [String]?
+    let genres: [String]?
+    let animeGenres: [String]?
     let duration: Int?
-    let allGenres: [String]?
-}
-
-private struct KodikGenresResponse: Decodable {
-    let results: [KodikGenre]
-}
-
-private struct KodikGenre: Decodable {
-    let title: String
 }

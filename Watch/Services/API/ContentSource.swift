@@ -31,10 +31,13 @@ final class ContentSourceRegistry: ObservableObject {
     @Published private(set) var sources: [ContentSource] = []
 
     private init() {
-        // Register default sources. Anilibria covers anime; Kodik covers
-        // anime + movies + series when the user provides a key.
+        // Default registrations:
+        //   - AniLibria: free anime metadata + HLS streams.
+        //   - PoiskKino: rich movie/series metadata (Kinopoisk + TMDb + IMDb).
+        //   - Kodik:     stream provider for everything; metadata fallback.
         sources = [
             AnilibriaSource(),
+            PoiskKinoSource(),
             KodikSource()
         ]
         Logger.shared.info("Registered \(sources.count) content sources", category: .source)

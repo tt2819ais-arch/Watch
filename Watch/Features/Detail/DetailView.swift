@@ -205,6 +205,8 @@ final class DetailViewModel: ObservableObject {
     func loadEpisodes() async {
         loading = true
         var collected: [Episode] = []
+
+        // Primary source for this item.
         for src in ContentSourceRegistry.shared.sources where src.id == item.sourceID {
             do {
                 collected.append(contentsOf: try await src.episodes(for: item))
@@ -212,6 +214,29 @@ final class DetailViewModel: ObservableObject {
                 Logger.shared.warn("episodes(for:) failed for \(src.id): \(error)", category: .source)
             }
         }
+
+        // For PoiskKino items the metadata source has no streams — fall back
+        // to Kodik using kinopoisk_id from the item's composite id.
+        if collected.isEmpty, item.sourceID == "poiskkino" {
+            if let kodik = ContentSourceRegistry.shared.sources.first(where: { $0.id == "kodik" }) as? KodikSource {
+                let kpID = item.id.split(separator: "|").last.map(String.init) ?? ""
+                if !kpID.isEmpty {
+                    do {
+                        collected.append(contentsOf: try await kodik.episodesByKinopoiskID(kpID))
+                    } catch {
+                        Logger.shared.warn("Kodik fallback by kinopoisk_id failed: \(error)", category: .source)
+                    }
+                }
+                if collected.isEmpty {
+                    do {
+                        collected.append(contentsOf: try await kodik.episodesByTitle(item.title, year: item.year))
+                    } catch {
+                        Logger.shared.warn("Kodik fallback by title failed: \(error)", category: .source)
+                    }
+                }
+            }
+        }
+
         episodes = collected.sorted { $0.number < $1.number }
         loading = false
     }
