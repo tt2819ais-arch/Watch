@@ -100,8 +100,13 @@ struct SearchView: View {
         }
     }
 
+    @ObservedObject private var history = SearchHistoryService.shared
+
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 16) {
+            if !history.queries.isEmpty {
+                historySection
+            }
             Spacer()
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 40, weight: .heavy))
@@ -112,6 +117,43 @@ struct SearchView: View {
                 .foregroundStyle(theme.palette.secondaryText)
             Spacer()
         }
+    }
+
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Недавние запросы")
+                    .font(AppFont.headline())
+                    .foregroundStyle(theme.palette.primaryText)
+                Spacer()
+                Button("Очистить") { history.clear() }
+                    .font(AppFont.subheadline())
+                    .foregroundStyle(theme.palette.danger)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(history.queries, id: \.self) { q in
+                        Button {
+                            vm.query = q
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 12, weight: .heavy))
+                                Text(q).lineLimit(1)
+                            }
+                            .font(AppFont.subheadline())
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(theme.palette.surface)
+                            .foregroundStyle(theme.palette.primaryText)
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 }
 
@@ -207,6 +249,9 @@ final class SearchViewModel: ObservableObject {
             let bP = b.title.lowercased().hasPrefix(q) ? 0 : 1
             if aP != bP { return aP < bP }
             return a.title.count < b.title.count
+        }
+        if !suggestions.isEmpty {
+            SearchHistoryService.shared.record(query)
         }
         loading = false
     }

@@ -2,8 +2,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var settings = PlayerSettings.shared
+    @ObservedObject private var history = SearchHistoryService.shared
+    @ObservedObject private var favorites = FavoritesService.shared
     @State private var kodikToken: String = UserDefaults.standard.string(forKey: "kodik.token") ?? ""
     @State private var poiskKinoToken: String = UserDefaults.standard.string(forKey: "poiskkino.token") ?? ""
+    @State private var showResetAllAlert = false
 
     var body: some View {
         NavigationStack {
@@ -15,6 +19,10 @@ struct SettingsView: View {
                         .padding(.top, 40)
 
                     themeSection
+                    accentSection
+                    fontSection
+                    playbackSection
+                    gestureSection
                     sourcesSection
                     storageSection
                     NavigationLink {
@@ -39,7 +47,15 @@ struct SettingsView: View {
             }
             .background(theme.palette.background.ignoresSafeArea())
         }
+        .alert("Сбросить всё?", isPresented: $showResetAllAlert) {
+            Button("Отмена", role: .cancel) {}
+            Button("Сбросить", role: .destructive) { resetEverything() }
+        } message: {
+            Text("Будут удалены избранное, прогресс, статистика, история поиска и все настройки.")
+        }
     }
+
+    // MARK: - Sections
 
     private var themeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -67,6 +83,139 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
                 Spacer()
+            }
+        }
+    }
+
+    private var accentSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Акцентный цвет")
+                .font(AppFont.title3())
+                .foregroundStyle(theme.palette.primaryText)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(AccentColor.allCases) { c in
+                        Button { theme.accent = c } label: {
+                            Circle()
+                                .fill(c.color)
+                                .frame(width: 38, height: 38)
+                                .overlay(
+                                    Circle().stroke(theme.palette.primaryText.opacity(c == theme.accent ? 1 : 0.0), lineWidth: 3)
+                                )
+                                .overlay(
+                                    Circle().stroke(theme.palette.separator, lineWidth: 1)
+                                )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var fontSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Размер шрифта")
+                .font(AppFont.title3())
+                .foregroundStyle(theme.palette.primaryText)
+            Picker("", selection: $theme.fontScale) {
+                ForEach(FontScale.allCases) { f in
+                    Text(f.displayName).tag(f)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private var playbackSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Воспроизведение")
+                .font(AppFont.title3())
+                .foregroundStyle(theme.palette.primaryText)
+
+            HStack {
+                Text("Шаг перемотки")
+                    .font(AppFont.body())
+                    .foregroundStyle(theme.palette.primaryText)
+                Spacer()
+                Picker("", selection: $settings.skipSeconds) {
+                    ForEach([5, 10, 15, 30], id: \.self) { v in
+                        Text("\(v)с").tag(v)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+
+            HStack {
+                Text("Скорость по умолчанию")
+                    .font(AppFont.body())
+                    .foregroundStyle(theme.palette.primaryText)
+                Spacer()
+                Menu {
+                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { v in
+                        Button {
+                            settings.defaultSpeed = v
+                        } label: {
+                            Text("\(speedLabel(v))×")
+                        }
+                    }
+                } label: {
+                    Text("\(speedLabel(settings.defaultSpeed))×")
+                        .font(AppFont.body())
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(theme.palette.surface)
+                        .foregroundStyle(theme.palette.primaryText)
+                        .clipShape(Capsule())
+                }
+            }
+
+            HStack {
+                Text("Ширина экрана по умолчанию")
+                    .font(AppFont.body())
+                    .foregroundStyle(theme.palette.primaryText)
+                Spacer()
+                Menu {
+                    ForEach(ZoomMode.allCases) { z in
+                        Button { settings.defaultZoomMode = z } label: { Text(z.displayName) }
+                    }
+                } label: {
+                    Text(settings.defaultZoomMode.displayName)
+                        .font(AppFont.body())
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(theme.palette.surface)
+                        .foregroundStyle(theme.palette.primaryText)
+                        .clipShape(Capsule())
+                }
+            }
+
+            toggle("Авто-пропуск опенинга", on: $settings.autoSkipIntro)
+            toggle("Авто-пропуск эндинга", on: $settings.autoSkipOutro)
+            toggle("Авто-переход на следующую серию", on: $settings.autoNextEpisode)
+            toggle("Запоминать качество", on: $settings.rememberQuality)
+        }
+    }
+
+    private var gestureSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Жесты в плеере")
+                .font(AppFont.title3())
+                .foregroundStyle(theme.palette.primaryText)
+            toggle("Свайп: яркость / громкость", on: $settings.enableSwipeGestures)
+            toggle("Двойной тап: перемотка", on: $settings.enableDoubleTapSkip)
+            toggle("Удержание: ускорение", on: $settings.enableLongPressBoost)
+            HStack {
+                Text("Скорость удержания")
+                    .font(AppFont.body())
+                    .foregroundStyle(theme.palette.primaryText)
+                Spacer()
+                Picker("", selection: $settings.longPressBoostSpeed) {
+                    Text("1.5×").tag(1.5)
+                    Text("2×").tag(2.0)
+                    Text("2.5×").tag(2.5)
+                    Text("3×").tag(3.0)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
             }
         }
     }
@@ -137,34 +286,42 @@ struct SettingsView: View {
             Text("Данные")
                 .font(AppFont.title3())
                 .foregroundStyle(theme.palette.primaryText)
-            HStack(spacing: 8) {
-                Button {
-                    Task { @MainActor in
-                        ProgressService.shared.clearAll()
-                    }
-                } label: {
-                    Text("Очистить прогресс")
-                        .font(AppFont.subheadline())
-                        .padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(theme.palette.surface)
-                        .foregroundStyle(theme.palette.primaryText)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+            VStack(spacing: 8) {
+                resetRow("Очистить избранное", icon: "heart.slash") {
+                    favorites.clearAll()
                 }
-                Button {
-                    Task { @MainActor in
-                        StatsService.shared.clearAll()
-                    }
-                } label: {
-                    Text("Очистить статистику")
-                        .font(AppFont.subheadline())
-                        .padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(theme.palette.surface)
-                        .foregroundStyle(theme.palette.primaryText)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                resetRow("Очистить прогресс", icon: "play.slash.fill") {
+                    ProgressService.shared.clearAll()
                 }
-                Spacer()
+                resetRow("Очистить статистику", icon: "chart.bar.xaxis") {
+                    StatsService.shared.clearAll()
+                }
+                resetRow("Очистить историю поиска", icon: "magnifyingglass.circle") {
+                    history.clear()
+                }
+                resetRow("Сбросить всё", icon: "trash.fill", destructive: true) {
+                    showResetAllAlert = true
+                }
             }
         }
+    }
+
+    private func resetRow(_ title: String, icon: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                Text(title)
+                    .font(AppFont.body())
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(AppFont.caption())
+            }
+            .padding(14)
+            .background(theme.palette.surface)
+            .foregroundStyle(destructive ? theme.palette.danger : theme.palette.primaryText)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var aboutSection: some View {
@@ -176,5 +333,37 @@ struct SettingsView: View {
                 .font(AppFont.subheadline())
                 .foregroundStyle(theme.palette.secondaryText)
         }
+    }
+
+    // MARK: - Helpers
+
+    private func toggle(_ title: String, on: Binding<Bool>) -> some View {
+        HStack {
+            Text(title)
+                .font(AppFont.body())
+                .foregroundStyle(theme.palette.primaryText)
+            Spacer()
+            Toggle("", isOn: on)
+                .labelsHidden()
+        }
+    }
+
+    private func speedLabel(_ value: Double) -> String {
+        if value == floor(value) { return "\(Int(value))" }
+        return String(format: "%g", value)
+    }
+
+    private func resetEverything() {
+        favorites.clearAll()
+        ProgressService.shared.clearAll()
+        StatsService.shared.clearAll()
+        history.clear()
+        // Reset player settings: just remove keys, the singleton will keep
+        // current values until next launch — that's acceptable.
+        let d = UserDefaults.standard
+        for key in d.dictionaryRepresentation().keys where key.hasPrefix("player.") {
+            d.removeObject(forKey: key)
+        }
+        Logger.shared.warn("Full reset performed", category: .ui)
     }
 }

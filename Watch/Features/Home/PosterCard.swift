@@ -2,27 +2,35 @@ import SwiftUI
 
 struct PosterCard: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var progress = ProgressService.shared
     let item: ContentItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncImage(url: item.posterURL) { phase in
-                switch phase {
-                case .success(let img):
-                    img.resizable().scaledToFill()
-                case .failure:
-                    placeholder
-                case .empty:
-                    placeholder
-                @unknown default:
-                    placeholder
+            ZStack(alignment: .topTrailing) {
+                AsyncImage(url: item.posterURL) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    case .failure:
+                        placeholder
+                    case .empty:
+                        placeholder
+                    @unknown default:
+                        placeholder
+                    }
                 }
-            }
-            .frame(width: 140, height: 200)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(theme.palette.separator, lineWidth: 0.5)
+                .frame(width: 140, height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(theme.palette.separator, lineWidth: 0.5)
+                }
+
+                if watchedCount > 0 {
+                    badge
+                        .padding(8)
+                }
             }
             Text(item.title)
                 .font(AppFont.subheadline())
@@ -35,6 +43,19 @@ struct PosterCard: View {
                     .foregroundStyle(theme.palette.secondaryText)
             }
         }
+    }
+
+    private var watchedCount: Int { progress.watchedCount(for: item.id) }
+
+    private var badge: some View {
+        Text("\(watchedCount)")
+            .font(.system(size: 12, weight: .heavy, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.65))
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(.white.opacity(0.4), lineWidth: 0.5))
     }
 
     private var placeholder: some View {

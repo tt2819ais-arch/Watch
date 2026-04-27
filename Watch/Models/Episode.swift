@@ -9,6 +9,13 @@ struct Episode: Identifiable, Codable, Hashable {
 
     /// Available qualities and voice tracks. Each Source is a playable URL.
     let sources: [VideoSource]
+
+    /// Optional intro / outro time markers in seconds (relative to start).
+    /// Used by the auto-skip and "Skip intro" / "Skip outro" buttons.
+    var openingStart: Double? = nil
+    var openingStop: Double? = nil
+    var endingStart: Double? = nil
+    var endingStop: Double? = nil
 }
 
 struct VideoSource: Identifiable, Codable, Hashable {

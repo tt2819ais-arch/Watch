@@ -9,6 +9,11 @@ struct PlayerView: View {
     @StateObject private var vm: PlayerViewModel
     @Environment(\.dismiss) private var dismiss
 
+    @State private var dragStartBrightness: Double = 0
+    @State private var dragStartVolume: Double = 0
+    @State private var didStartLeftDrag = false
+    @State private var didStartRightDrag = false
+
     init(item: ContentItem, episodes: [Episode], initialEpisode: Episode) {
         _vm = StateObject(wrappedValue: PlayerViewModel(
             item: item,
@@ -18,33 +23,25 @@ struct PlayerView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if vm.isHTMLEmbed {
-                EmbedWebPlayer(url: vm.currentURL)
-                    .ignoresSafeArea()
-            } else {
-                AVPlayerLayerView(player: vm.player, pip: vm.pipController)
-                    .ignoresSafeArea()
-            }
+        GeometryReader { geo in
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            // Tap area to toggle controls
-            Color.black.opacity(0.0001)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if !vm.locked {
-                        vm.toggleControls()
-                    }
+                videoLayer(in: geo.size)
+
+                // Tap & gesture surface
+                gestureSurface(size: geo.size)
+
+                hudOverlays
+
+                if vm.locked {
+                    LockOverlay(unlock: { vm.locked = false })
+                        .ignoresSafeArea()
+                } else if vm.controlsVisible {
+                    PlayerControlsOverlay(vm: vm, dismiss: { dismiss() })
+                        .ignoresSafeArea()
+                        .transition(.opacity)
                 }
-
-            if vm.locked {
-                LockOverlay(unlock: { vm.locked = false })
-                    .ignoresSafeArea()
-            } else if vm.controlsVisible {
-                PlayerControlsOverlay(vm: vm, dismiss: { dismiss() })
-                    .ignoresSafeArea()
-                    .transition(.opacity)
             }
         }
         .statusBarHidden(true)
@@ -58,23 +55,161 @@ struct PlayerView: View {
             vm.stop()
         }
     }
+
+    @ViewBuilder
+    private func videoLayer(in size: CGSize) -> some View {
+        if vm.isHTMLEmbed {
+            EmbedWebPlayer(url: vm.currentURL)
+                .ignoresSafeArea()
+        } else {
+            AVPlayerLayerView(player: vm.player, pip: vm.pipController, mode: vm.zoomMode, customZoom: vm.customZoom)
+                .ignoresSafeArea()
+        }
+    }
+
+    private func gestureSurface(size: CGSize) -> some View {
+        Color.black.opacity(0.0001)
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            // Single tap → toggle controls
+            .onTapGesture {
+                guard !vm.locked else { return }
+                vm.toggleControls()
+            }
+            // Double tap → skip ±N
+            .gesture(
+                SpatialTapGesture(count: 2)
+                    .onEnded { value in
+                        guard !vm.locked, vm.settings.enableDoubleTapSkip else { return }
+                        let half = size.width / 2
+                        if value.location.x < half {
+                            vm.skipBackward()
+                        } else {
+                            vm.skipForward()
+                        }
+                    }
+            )
+            // Long press → speed boost while held
+            .gesture(
+                LongPressGesture(minimumDuration: 0.45)
+                    .sequenced(before: DragGesture(minimumDistance: 0))
+                    .onChanged { value in
+                        switch value {
+                        case .second(true, _): vm.startSpeedBoost()
+                        default: break
+                        }
+                    }
+                    .onEnded { _ in vm.endSpeedBoost() }
+            )
+            // Drag for brightness (left half) / volume (right half)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { value in
+                        guard !vm.locked, vm.settings.enableSwipeGestures else { return }
+                        // Ignore mostly-horizontal drags so we don't fight scrubbing.
+                        if abs(value.translation.width) > abs(value.translation.height) { return }
+                        let half = size.width / 2
+                        let progress = -Double(value.translation.height / max(1, size.height))
+                        if value.startLocation.x < half {
+                            if !didStartLeftDrag {
+                                didStartLeftDrag = true
+                                dragStartBrightness = vm.currentBrightness()
+                            }
+                            vm.setBrightness(dragStartBrightness + progress)
+                        } else {
+                            if !didStartRightDrag {
+                                didStartRightDrag = true
+                                dragStartVolume = Double(AVAudioSessionVolumeProvider.shared.outputVolume())
+                            }
+                            vm.setSystemVolume(dragStartVolume + progress)
+                        }
+                    }
+                    .onEnded { _ in
+                        didStartLeftDrag = false
+                        didStartRightDrag = false
+                    }
+            )
+    }
+
+    private var hudOverlays: some View {
+        ZStack {
+            if let v = vm.brightnessOverlay {
+                hud(systemImage: "sun.max.fill", value: v)
+            }
+            if let v = vm.volumeOverlay {
+                hud(systemImage: "speaker.wave.2.fill", value: v)
+            }
+            if let s = vm.seekHUD {
+                Text("\(s.direction == .forward ? "+" : "−")\(s.seconds) с")
+                    .font(.system(size: 24, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(.black.opacity(0.55))
+                    .clipShape(Capsule())
+            }
+            if vm.showSpeedHUD {
+                Text("\(String(format: "%.2f", vm.playbackSpeed))×")
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(.black.opacity(0.55))
+                    .clipShape(Capsule())
+                    .offset(y: -160)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func hud(systemImage: String, value: Double) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 30, weight: .heavy))
+                .foregroundStyle(.white)
+            Capsule()
+                .fill(.white.opacity(0.25))
+                .frame(width: 4, height: 100)
+                .overlay(alignment: .bottom) {
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: 4, height: 100 * CGFloat(value))
+                }
+        }
+        .padding(.vertical, 14).padding(.horizontal, 22)
+        .background(.black.opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
 }
 
-/// AVPlayerLayer wrapper that also installs an AVPictureInPictureController.
+/// AVPlayerLayer wrapper that also installs an AVPictureInPictureController
+/// and respects the user's chosen zoom mode.
 struct AVPlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
     let pip: PiPController
+    let mode: ZoomMode
+    let customZoom: CGFloat
 
     func makeUIView(context: Context) -> PlayerContainerView {
         let v = PlayerContainerView()
         v.playerLayer.player = player
-        v.playerLayer.videoGravity = .resizeAspect
+        applyMode(to: v.playerLayer)
         pip.attach(to: v.playerLayer)
         return v
     }
 
     func updateUIView(_ uiView: PlayerContainerView, context: Context) {
         uiView.playerLayer.player = player
+        applyMode(to: uiView.playerLayer)
+        let scale = max(1.0, min(2.5, customZoom))
+        uiView.transform = CGAffineTransform(scaleX: scale, y: scale)
+    }
+
+    private func applyMode(to layer: AVPlayerLayer) {
+        switch mode {
+        case .fit:      layer.videoGravity = .resizeAspect
+        case .fill:     layer.videoGravity = .resizeAspectFill
+        case .stretch:  layer.videoGravity = .resize
+        case .original: layer.videoGravity = .resizeAspect
+        }
     }
 }
 
@@ -102,4 +237,10 @@ struct EmbedWebPlayer: UIViewRepresentable {
             uiView.load(URLRequest(url: url))
         }
     }
+}
+
+/// Tiny helper to read current output volume.
+final class AVAudioSessionVolumeProvider {
+    static let shared = AVAudioSessionVolumeProvider()
+    func outputVolume() -> Float { AVAudioSession.sharedInstance().outputVolume }
 }

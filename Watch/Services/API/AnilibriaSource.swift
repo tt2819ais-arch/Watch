@@ -144,7 +144,11 @@ final class AnilibriaSource: ContentSource, @unchecked Sendable {
             title: dto.name,
             durationSeconds: dto.duration,
             thumbnailURL: thumb.flatMap { absoluteURL($0) },
-            sources: sources
+            sources: sources,
+            openingStart: dto.opening?.start,
+            openingStop: dto.opening?.stop,
+            endingStart: dto.ending?.start,
+            endingStop: dto.ending?.stop
         )
     }
 
@@ -217,6 +221,13 @@ private struct EpisodeDTO: Decodable {
     let hls480: String?
     let hls720: String?
     let hls1080: String?
+    let opening: TimeRangeDTO?
+    let ending: TimeRangeDTO?
+}
+
+private struct TimeRangeDTO: Decodable {
+    let start: Double?
+    let stop: Double?
 }
 
 private struct PreviewDTO: Decodable {

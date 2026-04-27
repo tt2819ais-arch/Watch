@@ -34,6 +34,12 @@ final class FavoritesService: ObservableObject {
         persist()
     }
 
+    func clearAll() {
+        items.removeAll()
+        persist()
+        Logger.shared.warn("Favorites cleared", category: .persistence)
+    }
+
     private func persist() {
         PersistenceService.shared.save(items, key: key)
     }

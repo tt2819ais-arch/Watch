@@ -53,6 +53,35 @@ final class ProgressService: ObservableObject {
         rebuildLastWatched()
     }
 
+    /// Number of distinct episodes the user has actually finished for a given item.
+    func watchedCount(for itemID: String) -> Int {
+        byItemEpisode.values.filter { $0.itemID == itemID && $0.isFinished }.count
+    }
+
+    /// Mark or unmark an episode as finished, regardless of current playback position.
+    func setWatched(_ watched: Bool, itemID: String, episodeID: String, episodeNumber: Int, duration: Double) {
+        let key = "\(itemID)::\(episodeID)"
+        if watched {
+            let dur = duration > 0 ? duration : (byItemEpisode[key]?.duration ?? 1)
+            var p = byItemEpisode[key] ?? WatchProgress(
+                itemID: itemID,
+                episodeID: episodeID,
+                episodeNumber: episodeNumber,
+                position: 0,
+                duration: dur,
+                updatedAt: Date()
+            )
+            p.position = max(p.duration, dur)
+            if p.duration <= 0 { p.duration = max(dur, 1) }
+            p.updatedAt = Date()
+            byItemEpisode[key] = p
+        } else {
+            byItemEpisode[key] = nil
+        }
+        persist()
+        rebuildLastWatched()
+    }
+
     private func rebuildLastWatched() {
         lastWatched = byItemEpisode.values
             .filter { !$0.isFinished }

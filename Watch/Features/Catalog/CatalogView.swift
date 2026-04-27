@@ -49,11 +49,12 @@ struct CatalogView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text(kind.title)
                 .font(AppFont.largeTitle())
                 .foregroundStyle(theme.palette.primaryText)
             Spacer()
+            sortMenu
             Button {
                 showFilters = true
             } label: {
@@ -66,6 +67,28 @@ struct CatalogView: View {
             }
         }
         .padding(.top, 40)
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            ForEach(CatalogFilter.Sort.allCases) { s in
+                Button {
+                    vm.filter.sort = s
+                } label: {
+                    HStack {
+                        Text(s.displayName)
+                        if vm.filter.sort == s { Image(systemName: "checkmark") }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 16, weight: .heavy))
+                .padding(10)
+                .background(theme.palette.surface)
+                .foregroundStyle(theme.palette.primaryText)
+                .clipShape(Circle())
+        }
     }
 
     private var activeFiltersBar: some View {
@@ -128,8 +151,18 @@ final class CatalogViewModel: ObservableObject {
         let res = await ContentSourceRegistry.shared.aggregate({ [filter, kind] src in
             try await src.search(filter: filter, kind: kind, page: 1)
         }, for: kind)
-        items = res
+        items = applySort(res)
         loading = false
+    }
+
+    private func applySort(_ list: [ContentItem]) -> [ContentItem] {
+        switch filter.sort {
+        case .popularity: return list
+        case .recent:     return list.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+        case .year:       return list.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+        case .rating:     return list.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
+        case .name:       return list.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        }
     }
 
     func loadGenres() async {

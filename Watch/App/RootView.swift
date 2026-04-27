@@ -49,6 +49,15 @@ struct RootView: View {
                 .offset(x: app.sidebarVisible ? 0 : -sidebarWidth)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: app.sidebarVisible)
+        .dynamicTypeSize(dynamicTypeSize(for: theme.fontScale))
+    }
+
+    private func dynamicTypeSize(for scale: FontScale) -> DynamicTypeSize {
+        switch scale {
+        case .compact: return .small
+        case .normal:  return .large
+        case .large:   return .xxLarge
+        }
     }
 
     private var sidebarWidth: CGFloat { 280 }

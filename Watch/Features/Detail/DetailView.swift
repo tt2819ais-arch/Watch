@@ -136,6 +136,21 @@ struct DetailView: View {
                     EpisodeRow(item: vm.item, episode: ep)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    let watched = ProgressService.shared.progress(for: vm.item.id, episodeID: ep.id)?.isFinished == true
+                    Button {
+                        ProgressService.shared.setWatched(
+                            !watched,
+                            itemID: vm.item.id,
+                            episodeID: ep.id,
+                            episodeNumber: ep.number,
+                            duration: Double(ep.durationSeconds ?? 0)
+                        )
+                    } label: {
+                        Label(watched ? "Снять отметку" : "Отметить как просмотренную",
+                              systemImage: watched ? "circle" : "checkmark.circle.fill")
+                    }
+                }
             }
         }
     }

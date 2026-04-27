@@ -43,14 +43,32 @@ struct HomeView: View {
         }
         .task { await vm.loadAll() }
         .refreshable { await vm.loadAll() }
+        .sheet(item: $randomTarget) { item in
+            NavigationStack {
+                DetailView(item: item)
+            }
+        }
     }
 
+    @State private var randomTarget: ContentItem?
+
     private var titleHeader: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text("Привет 👋")
                 .font(AppFont.largeTitle())
                 .foregroundStyle(theme.palette.primaryText)
             Spacer()
+            Button {
+                randomTarget = vm.randomPick()
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.system(size: 18, weight: .heavy))
+                    .padding(10)
+                    .background(theme.palette.surface)
+                    .foregroundStyle(theme.palette.primaryText)
+                    .clipShape(Circle())
+            }
+            .accessibilityLabel("Случайный выбор")
         }
         .padding(.top, 40)
     }
@@ -109,5 +127,10 @@ final class HomeViewModel: ObservableObject {
 
     func itemFor(progress: WatchProgress) -> ContentItem? {
         itemsByID[progress.itemID]
+    }
+
+    func randomPick() -> ContentItem? {
+        let pool = popularAnime + popularMovies + popularSeries
+        return pool.randomElement()
     }
 }
