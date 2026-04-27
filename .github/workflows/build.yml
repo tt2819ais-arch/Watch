@@ -1,0 +1,98 @@
+name: Build Watch.ipa
+
+on:
+  push:
+    branches: [main, master, "devin/**"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Unsigned IPA
+    runs-on: macos-14
+
+    env:
+      SCHEME: Watch
+      CONFIGURATION: Release
+      ARCHIVE_PATH: build/Watch.xcarchive
+      EXPORT_DIR: build/export
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios || true
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Ensure AppIcon exists
+        run: |
+          if [ ! -f Watch/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png ]; then
+            python3 -m pip install --quiet Pillow
+            python3 Tools/make_icon.py
+          fi
+          ls -la Watch/Resources/Assets.xcassets/AppIcon.appiconset/
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate
+          ls -la
+
+      - name: Build archive (no signing)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Watch.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            ENABLE_BITCODE=NO \
+            archive | tee xcodebuild-archive.log
+
+      - name: Package unsigned .ipa
+        run: |
+          set -e
+          mkdir -p "$EXPORT_DIR/Payload"
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Built .app not found at $APP_PATH"
+            ls -laR "$ARCHIVE_PATH"
+            exit 1
+          fi
+          cp -R "$APP_PATH" "$EXPORT_DIR/Payload/"
+          # Remove leftover code signature directories — IPA must be unsigned.
+          find "$EXPORT_DIR/Payload" -type d -name "_CodeSignature" -exec rm -rf {} + || true
+          find "$EXPORT_DIR/Payload" -type f -name "embedded.mobileprovision" -delete || true
+          (cd "$EXPORT_DIR" && zip -qr "Watch-unsigned.ipa" "Payload")
+          ls -la "$EXPORT_DIR"
+
+      - name: Upload artifact (.ipa)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Watch-unsigned-ipa
+          path: build/export/Watch-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 60
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: xcodebuild-archive.log
+          if-no-files-found: ignore
+          retention-days: 14
