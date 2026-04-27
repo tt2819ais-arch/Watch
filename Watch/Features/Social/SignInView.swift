@@ -43,6 +43,16 @@ struct SignInView: View {
                 SignUpView()
                     .environmentObject(theme)
             }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundStyle(theme.palette.primaryText)
+                    }
+                }
+            }
         }
     }
 

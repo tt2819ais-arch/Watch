@@ -16,10 +16,17 @@ struct PublicProfileView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if let p = profile {
-                    headerCard(p: p)
+                    ProfileHeader(
+                        user: p.user,
+                        minutesTotal: p.statsMinutesTotal,
+                        episodesTotal: p.statsEpisodesTotal,
+                        favoritesCount: p.favorites?.count
+                    )
+                    .padding(.horizontal, 4)
+                    .padding(.top, 8)
                     if !p.isBlockingViewer {
                         actionRow(p: p)
-                        statsCard(p: p)
+                        joinedLine(p: p)
                         if let favs = p.favorites, !favs.isEmpty {
                             section(title: "Избранное") {
                                 horizontalPosters(items: favs.map { ($0.itemId, $0.title, $0.posterUrl) })
@@ -61,46 +68,23 @@ struct PublicProfileView: View {
 
     // MARK: - Header
 
-    private func headerCard(p: PublicProfile) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NicknameLabel(user: p.user, titleFont: AppFont.title())
-            if !p.user.bio.isEmpty {
-                Text(p.user.bio)
-                    .font(AppFont.subheadline())
-                    .foregroundStyle(theme.palette.primaryText)
-            }
-            HStack(spacing: 6) {
-                Image(systemName: "calendar")
-                Text("На Watch с \(p.user.createdAt, format: .dateTime.year().month().day())")
-            }
-            .font(AppFont.footnote())
-            .foregroundStyle(theme.palette.secondaryText)
+    private func joinedLine(p: PublicProfile) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "calendar")
+            Text("На Watch с \(p.user.createdAt, format: .dateTime.year().month().day())")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(theme.palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .font(AppFont.footnote())
+        .foregroundStyle(theme.palette.secondaryText)
+        .padding(.horizontal, 4)
     }
 
     private func actionRow(p: PublicProfile) -> some View {
         HStack(spacing: 10) {
             if !isMe(p.user) {
-                Button {
+                ProfileActionButton(title: "Написать", systemImage: "message.fill", style: .primary) {
                     openConversation = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "message.fill")
-                        Text("Написать")
-                    }
-                    .font(AppFont.button())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(theme.palette.primaryText)
-                    .foregroundStyle(theme.palette.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
-
             ShareLink(item: shareURL(for: p.user)) {
                 HStack(spacing: 6) {
                     Image(systemName: "square.and.arrow.up")
@@ -108,10 +92,14 @@ struct PublicProfileView: View {
                 }
                 .font(AppFont.button())
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 11)
                 .background(theme.palette.surface)
                 .foregroundStyle(theme.palette.primaryText)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(theme.palette.separator, lineWidth: 1)
+                }
             }
 
             if !isMe(p.user) {
@@ -134,37 +122,15 @@ struct PublicProfileView: View {
                         .background(theme.palette.surface)
                         .foregroundStyle(theme.palette.primaryText)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(theme.palette.separator, lineWidth: 1)
+                        }
                 }
                 .disabled(blockBusy)
             }
         }
-    }
-
-    private func statsCard(p: PublicProfile) -> some View {
-        HStack(spacing: 10) {
-            stat(icon: "clock.fill", title: "Минут",
-                 value: p.statsMinutesTotal.map(String.init) ?? "—")
-            stat(icon: "play.tv.fill", title: "Серий",
-                 value: p.statsEpisodesTotal.map(String.init) ?? "—")
-        }
-    }
-
-    private func stat(icon: String, title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .heavy))
-                .foregroundStyle(theme.palette.primaryText)
-            Text(value)
-                .font(AppFont.title2())
-                .foregroundStyle(theme.palette.primaryText)
-            Text(title)
-                .font(AppFont.footnote())
-                .foregroundStyle(theme.palette.secondaryText)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(theme.palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 4)
     }
 
     @ViewBuilder
@@ -291,6 +257,9 @@ struct PublicProfileView: View {
     }
 
     private func shareURL(for user: PublicUser) -> URL {
-        URL(string: user.shareUrl) ?? URL(string: "\(SocialConfig.urlScheme)://\(SocialConfig.userPathPrefix)/\(user.nickname)")!
+        // Always share the custom-scheme link so taps open the app via
+        // onOpenURL. The backend's `share_url` points at a placeholder
+        // domain that doesn't exist yet.
+        URL(string: "\(SocialConfig.urlScheme)://\(SocialConfig.userPathPrefix)/\(user.nickname)")!
     }
 }

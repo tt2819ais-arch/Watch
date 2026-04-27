@@ -213,11 +213,14 @@ actor WatchAPI {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        Logger.shared.debug("WatchAPI \(method) \(url.absoluteString)", category: .network)
+
         let data: Data
         let resp: URLResponse
         do {
             (data, resp) = try await session.data(for: req)
         } catch {
+            Logger.shared.warn("WatchAPI \(method) \(url.absoluteString) transport: \(error.localizedDescription)", category: .network)
             throw WatchAPIError.transport(error)
         }
 
@@ -225,11 +228,14 @@ actor WatchAPI {
             throw WatchAPIError.transport(URLError(.badServerResponse))
         }
 
+        Logger.shared.debug("WatchAPI \(method) \(url.absoluteString) -> \(http.statusCode)", category: .network)
+
         if http.statusCode == 401 { throw WatchAPIError.unauthorized }
         if http.statusCode == 403 { throw WatchAPIError.forbidden }
 
         guard (200...299).contains(http.statusCode) else {
             let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            Logger.shared.warn("WatchAPI \(method) \(url.absoluteString) -> \(http.statusCode) body: \(bodyStr.prefix(300))", category: .network)
             throw WatchAPIError.status(http.statusCode, body: bodyStr)
         }
 

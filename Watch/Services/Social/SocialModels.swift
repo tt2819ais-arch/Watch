@@ -97,9 +97,21 @@ enum WatchAPIError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "Невалидный URL"
-        case .unauthorized: return "Войдите в аккаунт"
+        case .unauthorized: return "Неверный никнейм или пароль"
         case .forbidden: return "Недостаточно прав"
-        case .status(let c, let b): return "HTTP \(c): \(b.prefix(200))"
+        case .status(let c, let b):
+            // Surface the human-readable detail FastAPI returns instead of
+            // raw JSON so the UI shows e.g. "Никнейм уже занят" rather than
+            // {"detail":"…"}.
+            let trimmed = b.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let data = trimmed.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let detail = obj["detail"] as? String, !detail.isEmpty {
+                return detail
+            }
+            if c == 409 { return "Уже существует" }
+            if c == 422 { return "Проверь введённые данные" }
+            return "Ошибка \(c)"
         case .decoding(let e): return "Ошибка разбора ответа: \(e.localizedDescription)"
         case .transport(let e): return "Сеть: \(e.localizedDescription)"
         }

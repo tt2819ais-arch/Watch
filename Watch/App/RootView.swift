@@ -37,12 +37,6 @@ struct RootView: View {
                     Label("Профиль", systemImage: "person.crop.circle.fill")
                 }
                 .tag(AppState.Section.profile)
-
-            SettingsView()
-                .tabItem {
-                    Label("Настройки", systemImage: "gearshape.fill")
-                }
-                .tag(AppState.Section.settings)
         }
         .tint(theme.palette.primaryText)
         .background(theme.palette.background.ignoresSafeArea())

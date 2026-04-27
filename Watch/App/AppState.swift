@@ -7,7 +7,7 @@ final class AppState: ObservableObject {
     static let shared = AppState()
 
     enum Section: String, CaseIterable, Identifiable, Codable {
-        case home, anime, movies, series, profile, settings
+        case home, anime, movies, series, profile
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -16,7 +16,6 @@ final class AppState: ObservableObject {
             case .movies: return "Фильмы"
             case .series: return "Сериалы"
             case .profile: return "Профиль"
-            case .settings: return "Настройки"
             }
         }
         var systemImage: String {
@@ -26,7 +25,6 @@ final class AppState: ObservableObject {
             case .movies: return "film.fill"
             case .series: return "tv.fill"
             case .profile: return "person.crop.circle.fill"
-            case .settings: return "gearshape.fill"
             }
         }
     }
