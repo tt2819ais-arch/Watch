@@ -33,7 +33,27 @@ final class KodikSource: ContentSource, @unchecked Sendable {
             params[kind == .anime ? "anime_genres" : "genres"] = filter.genres.joined(separator: ",")
         }
         params["types"] = typesParam(for: kind)
-        let raw = try await search(parameters: params)
+
+        // Kodik's /search endpoint requires at least one selector
+        // (title / kinopoisk_id / id / genre / year). Calling /search with
+        // only `types` returns HTTP 500 ("Не указан хотя бы один параметр для
+        // поиска") and pollutes the log. When the user opens a catalog tab
+        // with an empty filter we therefore fall through to /list, which
+        // happily accepts type+limit only.
+        let hasSelector = params["title"] != nil
+            || params["year"] != nil
+            || params["genres"] != nil
+            || params["anime_genres"] != nil
+        let raw: [KodikResult]
+        if hasSelector {
+            raw = try await search(parameters: params)
+        } else {
+            raw = try await list(parameters: [
+                "types": typesParam(for: kind),
+                "limit": "30",
+                "sort": "year"
+            ])
+        }
         return raw.compactMap { mapToItem($0, kind: kind) }
     }
 

@@ -32,7 +32,7 @@ struct RootView: View {
                 }
                 .tag(AppState.Section.series)
 
-            ProfileView()
+            ProfileTabRoot()
                 .tabItem {
                     Label("Профиль", systemImage: "person.crop.circle.fill")
                 }

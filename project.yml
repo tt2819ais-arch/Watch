@@ -37,6 +37,10 @@ targets:
         CFBundleVersion: "1"
         UILaunchScreen:
           UIColorName: ""
+        CFBundleURLTypes:
+          - CFBundleURLName: com.watch.profile
+            CFBundleURLSchemes:
+              - watch
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

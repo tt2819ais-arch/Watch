@@ -10,6 +10,17 @@ struct PlayerControlsOverlay: View {
                 colors: [Color.black.opacity(0.7), .clear, Color.black.opacity(0.7)],
                 startPoint: .top, endPoint: .bottom
             )
+            .allowsHitTesting(false)
+
+            // Transparent backdrop: tapping anywhere on the dim area
+            // (i.e. not on a button / menu / slider) toggles the controls
+            // off, so the user can tap once to hide and tap again to show.
+            // SwiftUI gives child Buttons priority over this parent gesture,
+            // so the actual controls keep working.
+            Color.black.opacity(0.0001)
+                .contentShape(Rectangle())
+                .onTapGesture { vm.toggleControls() }
+
             VStack {
                 topBar
                 Spacer()

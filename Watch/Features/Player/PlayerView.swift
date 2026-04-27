@@ -10,9 +10,7 @@ struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var dragStartBrightness: Double = 0
-    @State private var dragStartVolume: Double = 0
     @State private var didStartLeftDrag = false
-    @State private var didStartRightDrag = false
 
     init(item: ContentItem, episodes: [Episode], initialEpisode: Episode) {
         _vm = StateObject(wrappedValue: PlayerViewModel(
@@ -109,7 +107,10 @@ struct PlayerView: View {
                     }
                     .onEnded { _ in vm.endSpeedBoost() }
             )
-            // Drag for brightness (left half) / volume (right half)
+            // Vertical drag on the left half adjusts brightness. The right
+            // half is intentionally a no-op — system volume is only changed
+            // via the iPhone hardware buttons / Control Center, never via a
+            // swipe gesture (per UX request).
             .simultaneousGesture(
                 DragGesture(minimumDistance: 8)
                     .onChanged { value in
@@ -117,24 +118,16 @@ struct PlayerView: View {
                         // Ignore mostly-horizontal drags so we don't fight scrubbing.
                         if abs(value.translation.width) > abs(value.translation.height) { return }
                         let half = size.width / 2
+                        guard value.startLocation.x < half else { return }
                         let progress = -Double(value.translation.height / max(1, size.height))
-                        if value.startLocation.x < half {
-                            if !didStartLeftDrag {
-                                didStartLeftDrag = true
-                                dragStartBrightness = vm.currentBrightness()
-                            }
-                            vm.setBrightness(dragStartBrightness + progress)
-                        } else {
-                            if !didStartRightDrag {
-                                didStartRightDrag = true
-                                dragStartVolume = Double(AVAudioSessionVolumeProvider.shared.outputVolume())
-                            }
-                            vm.setSystemVolume(dragStartVolume + progress)
+                        if !didStartLeftDrag {
+                            didStartLeftDrag = true
+                            dragStartBrightness = vm.currentBrightness()
                         }
+                        vm.setBrightness(dragStartBrightness + progress)
                     }
                     .onEnded { _ in
                         didStartLeftDrag = false
-                        didStartRightDrag = false
                     }
             )
     }
@@ -143,9 +136,6 @@ struct PlayerView: View {
         ZStack {
             if let v = vm.brightnessOverlay {
                 hud(systemImage: "sun.max.fill", value: v)
-            }
-            if let v = vm.volumeOverlay {
-                hud(systemImage: "speaker.wave.2.fill", value: v)
             }
             if let s = vm.seekHUD {
                 Text("\(s.direction == .forward ? "+" : "−")\(s.seconds) с")
@@ -247,8 +237,4 @@ struct EmbedWebPlayer: UIViewRepresentable {
     }
 }
 
-/// Tiny helper to read current output volume.
-final class AVAudioSessionVolumeProvider {
-    static let shared = AVAudioSessionVolumeProvider()
-    func outputVolume() -> Float { AVAudioSession.sharedInstance().outputVolume }
-}
+

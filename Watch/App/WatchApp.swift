@@ -23,6 +23,13 @@ struct WatchApp: App {
                 .onAppear {
                     UIApplication.shared.isIdleTimerDisabled = false
                 }
+                // Deep-link handler for `watch://u/<nickname>` (and the
+                // universal-link shape `https://.../u/<nickname>`). Routes
+                // the user to the Profile tab and asks `ProfileTabRoot`
+                // to push the matching `PublicProfileView`.
+                .onOpenURL { url in
+                    appState.handle(url: url)
+                }
         }
     }
 

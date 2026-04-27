@@ -32,11 +32,13 @@ final class ContentSourceRegistry: ObservableObject {
 
     private init() {
         // Default registrations:
-        //   - AniLibria: free anime metadata + HLS streams.
-        //   - PoiskKino: rich movie/series metadata (Kinopoisk + TMDb + IMDb).
-        //   - Kodik:     stream provider for everything; metadata fallback.
+        //   - AniLibria:  free anime metadata + HLS streams.
+        //   - Animevost:  alternative RU dub for anime, direct mp4.
+        //   - PoiskKino:  rich movie/series metadata (Kinopoisk + TMDb + IMDb).
+        //   - Kodik:      stream provider for everything; metadata fallback.
         sources = [
             AnilibriaSource(),
+            AnimevostSource(),
             PoiskKinoSource(),
             KodikSource()
         ]

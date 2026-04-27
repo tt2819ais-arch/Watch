@@ -1,6 +1,10 @@
 import SwiftUI
 
-struct ProfileView: View {
+/// Local activity: stats / events / continue-watching / favourites. Used by
+/// `SelfProfileView` (signed-in tab content) and standalone for previews.
+/// Does NOT host its own `NavigationStack` — the parent provides one and
+/// owns the destinations.
+struct ProfileBody: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var stats = StatsService.shared
     @ObservedObject private var fav = FavoritesService.shared
@@ -9,43 +13,13 @@ struct ProfileView: View {
     @State private var period: StatsService.Period = .week
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    header
-                    statsCard
-                    periodPicker
-                    eventsSection
-                    continueSection
-                    favoritesSection
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 32)
-            }
-            .background(theme.palette.background.ignoresSafeArea())
-            .scrollIndicators(.hidden)
-            .navigationDestination(for: ContentItem.self) { item in
-                DetailView(item: item)
-            }
-            .navigationDestination(for: WatchProgress.self) { p in
-                if let item = ProfileLookup.shared.item(for: p) {
-                    DetailView(item: item, autoplayEpisodeNumber: p.episodeNumber)
-                }
-            }
+        VStack(alignment: .leading, spacing: 24) {
+            statsCard
+            periodPicker
+            eventsSection
+            continueSection
+            favoritesSection
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Профиль")
-                .font(AppFont.largeTitle())
-                .foregroundStyle(theme.palette.primaryText)
-            Text("Твоя активность и избранное")
-                .font(AppFont.subheadline())
-                .foregroundStyle(theme.palette.secondaryText)
-        }
-        .padding(.top, 40)
     }
 
     private var statsCard: some View {

@@ -5,7 +5,9 @@ struct SettingsView: View {
     @ObservedObject private var settings = PlayerSettings.shared
     @ObservedObject private var history = SearchHistoryService.shared
     @ObservedObject private var favorites = FavoritesService.shared
+    @ObservedObject private var auth = AuthService.shared
     @State private var showResetAllAlert = false
+    @State private var showSignOutAlert = false
 
     var body: some View {
         NavigationStack {
@@ -16,6 +18,10 @@ struct SettingsView: View {
                         .foregroundStyle(theme.palette.primaryText)
                         .padding(.top, 40)
 
+                    if auth.isAuthenticated {
+                        accountSection
+                        privacySection
+                    }
                     themeSection
                     accentSection
                     fontSection
@@ -48,6 +54,120 @@ struct SettingsView: View {
             Button("Сбросить", role: .destructive) { resetEverything() }
         } message: {
             Text("Будут удалены избранное, прогресс, статистика, история поиска и все настройки.")
+        }
+        .alert("Выйти из аккаунта?", isPresented: $showSignOutAlert) {
+            Button("Отмена", role: .cancel) {}
+            Button("Выйти", role: .destructive) { auth.signOut() }
+        } message: {
+            Text("Локальные данные (избранное, прогресс, статистика) останутся на устройстве.")
+        }
+    }
+
+    // MARK: - Account / Privacy
+
+    @ViewBuilder
+    private var accountSection: some View {
+        if let user = auth.currentUser {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Аккаунт")
+                    .font(AppFont.title3())
+                    .foregroundStyle(theme.palette.primaryText)
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(theme.palette.surfaceElevated)
+                        .frame(width: 44, height: 44)
+                        .overlay {
+                            Text(String(user.nickname.prefix(1)).uppercased())
+                                .font(AppFont.headline())
+                                .foregroundStyle(theme.palette.primaryText)
+                        }
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(user.handle)
+                                .font(AppFont.headline())
+                                .foregroundStyle(theme.palette.primaryText)
+                            if user.verified || user.isOfficial {
+                                VerifiedBadge(isOfficial: user.isOfficial)
+                            }
+                        }
+                        if user.isOfficial {
+                            Text("Официальный аккаунт Watch")
+                                .font(AppFont.caption())
+                                .foregroundStyle(theme.palette.secondaryText)
+                        } else if user.isAdmin {
+                            Text("Администратор")
+                                .font(AppFont.caption())
+                                .foregroundStyle(theme.palette.secondaryText)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(14)
+                .background(theme.palette.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Button(role: .destructive) {
+                    showSignOutAlert = true
+                } label: {
+                    HStack {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                        Text("Выйти")
+                            .font(AppFont.body())
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(theme.palette.surface)
+                    .foregroundStyle(theme.palette.danger)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var privacySection: some View {
+        if let user = auth.currentUser {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Приватность")
+                    .font(AppFont.title3())
+                    .foregroundStyle(theme.palette.primaryText)
+                Text("Скрывает соответствующие блоки на твоём публичном профиле для других пользователей.")
+                    .font(AppFont.footnote())
+                    .foregroundStyle(theme.palette.secondaryText)
+                privacyToggle(
+                    title: "Скрывать статистику",
+                    isOn: user.privacyHideStats
+                ) { newValue in
+                    Task { await auth.updatePrivacy(hideStats: newValue) }
+                }
+                privacyToggle(
+                    title: "Скрывать избранное",
+                    isOn: user.privacyHideFavorites
+                ) { newValue in
+                    Task { await auth.updatePrivacy(hideFavorites: newValue) }
+                }
+                privacyToggle(
+                    title: "Скрывать историю просмотра",
+                    isOn: user.privacyHideHistory
+                ) { newValue in
+                    Task { await auth.updatePrivacy(hideHistory: newValue) }
+                }
+            }
+        }
+    }
+
+    private func privacyToggle(title: String, isOn current: Bool, onChange: @escaping (Bool) -> Void) -> some View {
+        HStack {
+            Text(title)
+                .font(AppFont.body())
+                .foregroundStyle(theme.palette.primaryText)
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { current },
+                set: { onChange($0) }
+            ))
+            .labelsHidden()
         }
     }
 
@@ -196,7 +316,7 @@ struct SettingsView: View {
             Text("Жесты в плеере")
                 .font(AppFont.title3())
                 .foregroundStyle(theme.palette.primaryText)
-            toggle("Свайп: яркость / громкость", on: $settings.enableSwipeGestures)
+            toggle("Свайп: яркость", on: $settings.enableSwipeGestures)
             toggle("Двойной тап: перемотка", on: $settings.enableDoubleTapSkip)
             toggle("Удержание: ускорение", on: $settings.enableLongPressBoost)
             HStack {

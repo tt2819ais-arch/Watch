@@ -33,6 +33,10 @@ final class AppState: ObservableObject {
 
     @Published var selectedSection: Section = .home
 
+    /// Set by `onOpenURL` (deep links like `watch://u/<nickname>`).
+    /// `ProfileTabRoot` consumes it on appear and clears it.
+    @Published var pendingProfileNickname: String?
+
     let logger = Logger.shared
     let persistence = PersistenceService.shared
     let progress = ProgressService.shared
@@ -41,4 +45,30 @@ final class AppState: ObservableObject {
     let sources = ContentSourceRegistry.shared
 
     private init() {}
+
+    /// Returns true if the URL was understood and routed; false otherwise.
+    @discardableResult
+    func handle(url: URL) -> Bool {
+        // Accept both `watch://u/<nick>` and `https://watch.../u/<nick>` shapes.
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        var path = comps.path
+        if path.hasPrefix("/") { path.removeFirst() }
+        let segments = path.split(separator: "/").map(String.init)
+        if comps.scheme == SocialConfig.urlScheme,
+           let host = comps.host, host == SocialConfig.userPathPrefix,
+           let nick = segments.first {
+            routeToProfile(nickname: nick)
+            return true
+        }
+        if segments.first == SocialConfig.userPathPrefix, segments.count >= 2 {
+            routeToProfile(nickname: segments[1])
+            return true
+        }
+        return false
+    }
+
+    private func routeToProfile(nickname: String) {
+        selectedSection = .profile
+        pendingProfileNickname = nickname
+    }
 }

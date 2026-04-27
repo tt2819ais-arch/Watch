@@ -4,7 +4,6 @@ import AVKit
 import Combine
 import UIKit
 import SwiftUI
-import MediaPlayer
 
 @MainActor
 final class PlayerViewModel: ObservableObject {
@@ -27,7 +26,6 @@ final class PlayerViewModel: ObservableObject {
     @Published var customZoom: CGFloat = 1.0
     @Published var showSpeedHUD: Bool = false
     @Published var brightnessOverlay: Double? = nil   // 0...1 transient
-    @Published var volumeOverlay: Double? = nil       // 0...1 transient
     @Published var seekHUD: SeekHUD? = nil
     @Published var introSkipAvailable: Bool = false
     @Published var outroSkipAvailable: Bool = false
@@ -310,20 +308,12 @@ final class PlayerViewModel: ObservableObject {
 
     func currentBrightness() -> Double { Double(UIScreen.main.brightness) }
 
-    func setSystemVolume(_ v: Double) {
-        let clamped = max(0, min(1, v))
-        VolumeSlider.shared.set(value: Float(clamped))
-        volumeOverlay = clamped
-        scheduleHUDClear()
-    }
-
     private func scheduleHUDClear() {
         hudClearTask?.cancel()
         hudClearTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
             await MainActor.run {
                 self?.brightnessOverlay = nil
-                self?.volumeOverlay = nil
             }
         }
     }
@@ -537,17 +527,4 @@ struct SeekHUD: Identifiable {
     let id = UUID()
     let direction: Direction
     let seconds: Int
-}
-
-/// Hidden MPVolumeView so we can set the system volume programmatically.
-final class VolumeSlider {
-    static let shared = VolumeSlider()
-    private let view = MPVolumeView(frame: .zero)
-    private var slider: UISlider? {
-        view.subviews.first(where: { $0 is UISlider }) as? UISlider
-    }
-    func set(value: Float) {
-        slider?.setValue(value, animated: false)
-        slider?.sendActions(for: .valueChanged)
-    }
 }
