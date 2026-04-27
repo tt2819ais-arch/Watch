@@ -17,10 +17,28 @@ import sys
 SECRETS_PATH = pathlib.Path("Watch/Services/Secrets.swift")
 
 
+def _swift_escape(value: str) -> str:
+    """Escape a string so it lives inside a Swift "..." literal safely.
+
+    Swift treats `\\` as a literal backslash, `"` ends the string,
+    and `\\(expr)` is interpolation that would *execute* expr at
+    runtime — exactly the injection vector we don't want a secret env
+    var to be able to trigger.
+    """
+    return (
+        value.replace("\\", "\\\\")
+             .replace('"', '\\"')
+    )
+
+
 def replace(text: str, name: str, value: str) -> str:
     pattern = rf'static let {name}: String = ".*?"'
-    replacement = f'static let {name}: String = "{value}"'
-    new_text, n = re.subn(pattern, replacement, text, count=1)
+    escaped = _swift_escape(value)
+    swift_literal = f'static let {name}: String = "{escaped}"'
+    # Pass the replacement as a callable so `re.sub` does not interpret
+    # backslash-digit sequences (e.g. "\\1") in the secret as group
+    # back-references.
+    new_text, n = re.subn(pattern, lambda _m: swift_literal, text, count=1)
     if n != 1:
         raise SystemExit(f"failed to substitute {name}: pattern not found")
     return new_text

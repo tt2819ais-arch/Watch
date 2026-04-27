@@ -100,14 +100,21 @@ def public_profile(db: Session, target: User, viewer: Optional[User]) -> PublicP
             )
         ) or 0
         minutes_total = int(secs // 60)
-        episodes_total = (
-            db.scalar(
-                select(func.count(StatPoint.id)).where(
-                    StatPoint.user_id == target.id, StatPoint.episode_number.is_not(None)
-                )
+        # Count *distinct* (item_id, episode_number) tuples rather than
+        # raw stat point rows: the player ticks a row every ~30s of
+        # playback, so a single 24-minute episode produces ~48 rows
+        # and counting them naïvely would inflate the public profile's
+        # "episodes watched" badge by ~50x.
+        distinct_subq = (
+            select(StatPoint.item_id, StatPoint.episode_number)
+            .where(
+                StatPoint.user_id == target.id,
+                StatPoint.episode_number.is_not(None),
             )
-            or 0
+            .distinct()
+            .subquery()
         )
+        episodes_total = db.scalar(select(func.count()).select_from(distinct_subq)) or 0
 
     favorites: Optional[List[FavoriteOut]] = None
     if show_favs:
