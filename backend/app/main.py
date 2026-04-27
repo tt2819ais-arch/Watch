@@ -494,32 +494,13 @@ def push_stat(
 
 # ---- Admin ------------------------------------------------------------
 
-@app.get("/admin/bootstrap_credentials", tags=["admin"])
-def bootstrap_credentials() -> dict:
-    """Single-use endpoint that returns the bootstrap admin password
-    written to /data/admin_password.txt by the startup hook, then
-    deletes the file so the credential can never be fetched twice.
-
-    No authentication is required because there is no admin login at
-    this point — that's the entire purpose of this endpoint. Once
-    consumed (file removed) it returns 410 Gone, and the operator is
-    expected to rotate the password immediately via
-    /auth/change_password and never share the seed again.
-    """
-    from pathlib import Path as _Path
-    p = _Path(settings.db_path).parent / "admin_password.txt"
-    if not p.exists():
-        raise HTTPException(status_code=410, detail="bootstrap credentials already consumed")
-    try:
-        raw = p.read_text(encoding="utf-8").strip()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"could not read credentials file: {e}")
-    nickname, _, password = raw.partition(":")
-    try:
-        p.unlink()
-    except Exception as e:
-        log.warning("Could not delete bootstrap credentials file: %s", e)
-    return {"nickname": nickname, "password": password}
+# NOTE on operator credentials: the bootstrap admin password is *only*
+# emitted to stdout (visible via `flyctl logs`) and to the
+# /data/admin_password.txt file inside the volume. There is
+# intentionally no public HTTP endpoint that returns it — exposing one
+# would race-condition any operator with the public internet. Pull the
+# value out of the logs once and rotate immediately via
+# POST /auth/change_password.
 
 
 @app.post("/admin/promote/{nickname}", response_model=PublicUser, tags=["admin"])
