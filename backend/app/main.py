@@ -76,16 +76,28 @@ def _bootstrap_admin() -> None:
     rotated_marker = _Path(settings.db_path).parent / "admin_rotated_v1"
 
     def _persist_password(password: str) -> None:
+        # Prefer the volume file: it lives only inside the persistent
+        # disk and is removed by the operator after first read. Only
+        # fall back to stdout when the file write fails so the seed
+        # credential isn't normally captured by log-aggregation
+        # pipelines forever.
         try:
             p = _Path(settings.db_path).parent / "admin_password.txt"
             p.write_text(f"{settings.admin_nickname}:{password}\n", encoding="utf-8")
+            log.info(
+                "Bootstrap admin password written to %s (read once and delete).",
+                p,
+            )
         except Exception as e:
-            log.warning("Could not persist admin password file: %s", e)
-        log.info(
-            "WATCH_BOOTSTRAP_ADMIN_PASSWORD=%s nickname=%s",
-            password,
-            settings.admin_nickname,
-        )
+            log.warning(
+                "Could not persist admin password file (%s); falling back to log line.",
+                e,
+            )
+            log.warning(
+                "WATCH_BOOTSTRAP_ADMIN_PASSWORD=%s nickname=%s",
+                password,
+                settings.admin_nickname,
+            )
 
     with session_scope() as s:
         existing = s.scalar(select(User).where(User.nickname_lower == settings.admin_nickname.lower()))
