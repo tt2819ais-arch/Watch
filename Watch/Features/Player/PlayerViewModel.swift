@@ -513,9 +513,11 @@ final class PlayerViewModel: ObservableObject {
         nextEpisodeCountdown = nil
     }
 
+    /// Bumped from 4 → 7 seconds because users were losing the controls
+    /// while still actively hunting for menus.
     private func scheduleControlsHide(extra: Bool = false) {
         controlsHideTask?.cancel()
-        let delayNs: UInt64 = extra ? 8_000_000_000 : 4_000_000_000
+        let delayNs: UInt64 = extra ? 12_000_000_000 : 7_000_000_000
         controlsHideTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delayNs)
             await MainActor.run {

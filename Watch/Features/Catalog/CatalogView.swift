@@ -38,13 +38,13 @@ struct CatalogView: View {
                 .presentationDetents([.medium, .large])
             }
         }
-        .task {
-            await vm.loadGenres()
-            await vm.load()
+        .task(id: "catalog-\(kind.rawValue)") {
+            await vm.loadGenresIfNeeded()
+            await vm.loadIfNeeded()
         }
-        .refreshable { await vm.load() }
+        .refreshable { await vm.forceReload() }
         .onChange(of: vm.filter) { _ in
-            Task { await vm.load() }
+            Task { await vm.forceReload() }
         }
     }
 
@@ -146,14 +146,27 @@ final class CatalogViewModel: ObservableObject {
 
     init(kind: ContentKind) { self.kind = kind }
 
-    func load() async {
+    private var didLoad = false
+    private var didLoadGenres = false
+
+    func loadIfNeeded() async {
+        if didLoad && !items.isEmpty { return }
+        await forceReload()
+    }
+
+    func forceReload() async {
         loading = true
         let res = await ContentSourceRegistry.shared.aggregate({ [filter, kind] src in
             try await src.search(filter: filter, kind: kind, page: 1)
         }, for: kind)
-        items = applySort(res)
-        ProfileLookup.shared.register(items)
+        // Don't blow away last-known-good results just because a transient
+        // cancellation came back empty.
+        if !res.isEmpty || items.isEmpty {
+            items = applySort(res)
+            ProfileLookup.shared.register(items)
+        }
         loading = false
+        didLoad = true
     }
 
     private func applySort(_ list: [ContentItem]) -> [ContentItem] {
@@ -166,7 +179,8 @@ final class CatalogViewModel: ObservableObject {
         }
     }
 
-    func loadGenres() async {
+    func loadGenresIfNeeded() async {
+        if didLoadGenres { return }
         // Walk every source that supports this kind and merge their genres
         // by name, keeping the first source's id (so the catalog query maps
         // back to a real API genre id rather than a lowercased label).
@@ -182,6 +196,7 @@ final class CatalogViewModel: ObservableObject {
             }
         }
         availableGenres = merged.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        didLoadGenres = !merged.isEmpty
     }
 
     var activeFilterChips: [String] {

@@ -29,8 +29,14 @@ struct PlayerView: View {
 
                 videoLayer(in: geo.size)
 
-                // Tap & gesture surface
-                gestureSurface(size: geo.size)
+                // Tap & gesture surface — only active when no controls are
+                // visible. While the controls overlay is on screen the
+                // overlay's own buttons / menus / scrubber take priority and
+                // gestures here would steal taps and cause "auto collapse"
+                // weirdness reported in earlier builds.
+                if !vm.locked && !vm.controlsVisible {
+                    gestureSurface(size: geo.size)
+                }
 
                 hudOverlays
 

@@ -41,8 +41,8 @@ struct HomeView: View {
                 }
             }
         }
-        .task { await vm.loadAll() }
-        .refreshable { await vm.loadAll() }
+        .task(id: "home-once") { await vm.loadAllIfNeeded() }
+        .refreshable { await vm.forceReload() }
         .sheet(item: $randomTarget) { item in
             NavigationStack {
                 DetailView(item: item)
@@ -110,20 +110,33 @@ final class HomeViewModel: ObservableObject {
     @Published var continueWatching: [WatchProgress] = []
     @Published var itemsByID: [String: ContentItem] = [:]
 
-    func loadAll() async {
-        await loadKind(.anime, into: \.popularAnime)
-        await loadKind(.movie, into: \.popularMovies)
-        await loadKind(.series, into: \.popularSeries)
+    private var didLoadOnce = false
+
+    func loadAllIfNeeded() async {
+        if didLoadOnce { return }
+        await forceReload()
+    }
+
+    func forceReload() async {
+        // Run all three feed loads in parallel — speeds up first paint and
+        // avoids cancellations cascading from a long serial chain.
+        async let anime: Void = loadKind(.anime, into: \.popularAnime)
+        async let movies: Void = loadKind(.movie, into: \.popularMovies)
+        async let series: Void = loadKind(.series, into: \.popularSeries)
+        _ = await (anime, movies, series)
         continueWatching = Array(ProgressService.shared.lastWatched.prefix(10))
+        didLoadOnce = true
     }
 
     private func loadKind(_ kind: ContentKind, into keypath: ReferenceWritableKeyPath<HomeViewModel, [ContentItem]>) async {
         let items = await ContentSourceRegistry.shared.aggregate({ source in
             try await source.popular(kind: kind, limit: 20)
         }, for: kind)
-        self[keyPath: keypath] = items
-        for it in items { itemsByID[it.id] = it }
-        ProfileLookup.shared.register(items)
+        if !items.isEmpty || self[keyPath: keypath].isEmpty {
+            self[keyPath: keypath] = items
+            for it in items { itemsByID[it.id] = it }
+            ProfileLookup.shared.register(items)
+        }
     }
 
     func itemFor(progress: WatchProgress) -> ContentItem? {

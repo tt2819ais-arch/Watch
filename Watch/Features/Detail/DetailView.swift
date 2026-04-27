@@ -3,9 +3,31 @@ import SwiftUI
 struct DetailView: View {
     @EnvironmentObject private var theme: ThemeManager
     @StateObject private var vm: DetailViewModel
-    @State private var presentedEpisode: Episode?
-    @State private var showPrePlay: Bool = false
-    @State private var pendingEpisode: Episode?
+    /// Sheet/cover presentation flow:
+    ///   nil → idle.
+    ///   .preplay(ep) → PrePlayPicker sheet open.
+    ///   .player(ep) → fullScreenCover with player.
+    /// Using a single state machine avoids racing two unrelated SwiftUI
+    /// presentations attached to the same view, which silently swallowed
+    /// presentations on iOS 16/17 in earlier builds.
+    @State private var stage: PresentationStage?
+
+    enum PresentationStage: Identifiable, Hashable {
+        case preplay(Episode)
+        case player(Episode)
+        var id: String {
+            switch self {
+            case .preplay(let e): return "pre-\(e.id)"
+            case .player(let e):  return "play-\(e.id)"
+            }
+        }
+        var episode: Episode {
+            switch self {
+            case .preplay(let e), .player(let e): return e
+            }
+        }
+        var isPlayer: Bool { if case .player = self { return true }; return false }
+    }
 
     init(item: ContentItem, autoplayEpisodeNumber: Int? = nil) {
         _vm = StateObject(wrappedValue: DetailViewModel(item: item, autoplayEpisodeNumber: autoplayEpisodeNumber))
@@ -39,63 +61,114 @@ struct DetailView: View {
         }
         .task {
             await vm.loadEpisodes()
-            if let n = vm.autoplayEpisodeNumber, let ep = vm.episodes.first(where: { $0.number == n }) {
-                pendingEpisode = ep
-                showPrePlay = true
+            if let n = vm.autoplayEpisodeNumber,
+               let ep = vm.episodes.first(where: { $0.number == n }) {
+                openPrePlay(for: ep)
             }
         }
-        .sheet(isPresented: $showPrePlay) {
-            if let ep = pendingEpisode {
+        .sheet(
+            isPresented: Binding(
+                get: { if case .preplay = stage { return true } else { return false } },
+                set: { if !$0, case .preplay = stage { stage = nil } }
+            )
+        ) {
+            if case .preplay(let ep) = stage {
                 PrePlayPicker(item: vm.item, episode: ep) { chosen in
-                    showPrePlay = false
                     if let updated = chosen {
-                        pendingEpisode = updated
-                        // brief tick so the sheet dismiss animation completes before
-                        // fullScreenCover takes over the screen
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                            presentedEpisode = updated
+                        // Switch to player stage; the cover takes over after
+                        // the sheet's dismiss animation finishes.
+                        stage = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                            stage = .player(updated)
                         }
+                    } else {
+                        stage = nil
                     }
                 }
                 .presentationDetents([.medium, .large])
+                .interactiveDismissDisabled(false)
             }
         }
-        .fullScreenCover(item: $presentedEpisode) { ep in
-            PlayerView(item: vm.item, episodes: vm.episodes, initialEpisode: ep)
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { if case .player = stage { return true } else { return false } },
+                set: { if !$0, case .player = stage { stage = nil } }
+            )
+        ) {
+            if case .player(let ep) = stage {
+                PlayerView(item: vm.item, episodes: vm.episodes, initialEpisode: ep)
+            }
         }
+    }
+
+    private func openPrePlay(for ep: Episode) {
+        // Defensive: only present if the episode actually has streamable
+        // sources, so the user never lands on an empty picker.
+        guard !ep.sources.isEmpty else {
+            Logger.shared.warn("openPrePlay called with empty sources for ep \(ep.number)", category: .player)
+            return
+        }
+        stage = .preplay(ep)
     }
 
     private var watchButton: some View {
         Button {
-            // Pick the best resume target: in-progress unwatched episode,
-            // otherwise the first one.
-            let resume = bestResumeEpisode()
-            if let ep = resume {
-                pendingEpisode = ep
-                showPrePlay = true
+            if let ep = bestResumeEpisode() {
+                openPrePlay(for: ep)
             }
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 18, weight: .heavy))
-                Text(watchButtonTitle)
-                    .font(AppFont.headline())
-                Spacer()
-                if vm.episodes.count > 1, let ep = bestResumeEpisode() {
-                    Text("Серия \(ep.number)")
-                        .font(AppFont.subheadline())
-                        .foregroundStyle(theme.palette.background.opacity(0.7))
+            let active = !vm.episodes.isEmpty
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(active ? theme.palette.background.opacity(0.15) : Color.clear)
+                        .frame(width: 32, height: 32)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .heavy))
+                        .offset(x: 1)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(watchButtonTitle)
+                        .font(AppFont.headline())
+                    if active, vm.episodes.count > 1, let ep = bestResumeEpisode() {
+                        Text(resumeSubtitle(for: ep))
+                            .font(AppFont.caption())
+                            .foregroundStyle((active ? theme.palette.background : theme.palette.secondaryText).opacity(0.7))
+                    }
+                }
+                Spacer(minLength: 0)
+                if active {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .heavy))
+                        .opacity(0.55)
                 }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
-            .frame(maxWidth: .infinity)
-            .background(vm.episodes.isEmpty ? theme.palette.surface : theme.palette.primaryText)
-            .foregroundStyle(vm.episodes.isEmpty ? theme.palette.secondaryText : theme.palette.background)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 60)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(active ? theme.palette.primaryText : theme.palette.surface)
+            )
+            .foregroundStyle(active ? theme.palette.background : theme.palette.secondaryText)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(theme.palette.separator.opacity(active ? 0 : 1), lineWidth: 1)
+            )
+            .shadow(color: active ? theme.palette.primaryText.opacity(0.18) : .clear,
+                    radius: 12, x: 0, y: 6)
         }
         .buttonStyle(.plain)
         .disabled(vm.episodes.isEmpty)
+    }
+
+    private func resumeSubtitle(for ep: Episode) -> String {
+        if let prog = ProgressService.shared.progress(for: vm.item.id, episodeID: ep.id),
+           prog.position > 30 && !prog.isFinished {
+            let pct = Int((prog.position / max(1, prog.duration)) * 100)
+            return "Серия \(ep.number) · \(pct)% просмотрено"
+        }
+        return "Серия \(ep.number) из \(vm.episodes.count)"
     }
 
     private var watchButtonTitle: String {
@@ -215,8 +288,7 @@ struct DetailView: View {
             }
             ForEach(vm.episodes) { ep in
                 Button {
-                    pendingEpisode = ep
-                    showPrePlay = true
+                    openPrePlay(for: ep)
                 } label: {
                     EpisodeRow(item: vm.item, episode: ep)
                 }
