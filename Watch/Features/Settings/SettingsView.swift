@@ -8,6 +8,15 @@ struct SettingsView: View {
     @ObservedObject private var auth = AuthService.shared
     @State private var showResetAllAlert = false
     @State private var showSignOutAlert = false
+    @State private var pendingClear: ClearAction?
+    @State private var doneToast: Bool = false
+
+    private struct ClearAction: Identifiable {
+        let id = UUID()
+        let title: String
+        let body: String
+        let perform: () -> Void
+    }
 
     var body: some View {
         NavigationStack {
@@ -51,7 +60,10 @@ struct SettingsView: View {
         }
         .alert("Сбросить всё?", isPresented: $showResetAllAlert) {
             Button("Отмена", role: .cancel) {}
-            Button("Сбросить", role: .destructive) { resetEverything() }
+            Button("Сбросить", role: .destructive) {
+                resetEverything()
+                presentDoneToast()
+            }
         } message: {
             Text("Будут удалены избранное, прогресс, статистика, история поиска и все настройки.")
         }
@@ -60,6 +72,36 @@ struct SettingsView: View {
             Button("Выйти", role: .destructive) { auth.signOut() }
         } message: {
             Text("Локальные данные (избранное, прогресс, статистика) останутся на устройстве.")
+        }
+        .alert(item: $pendingClear) { action in
+            Alert(
+                title: Text(action.title),
+                message: Text(action.body),
+                primaryButton: .destructive(Text("Очистить")) {
+                    action.perform()
+                    presentDoneToast()
+                },
+                secondaryButton: .cancel(Text("Отмена"))
+            )
+        }
+        .overlay {
+            if doneToast {
+                DoneCheckmarkOverlay()
+                    .transition(.opacity.combined(with: .scale))
+                    .zIndex(1)
+            }
+        }
+    }
+
+    private func presentDoneToast() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            doneToast = true
+        }
+        // Auto-dismiss after a moment.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            withAnimation(.easeOut(duration: 0.25)) {
+                doneToast = false
+            }
         }
     }
 
@@ -343,16 +385,32 @@ struct SettingsView: View {
                 .foregroundStyle(theme.palette.primaryText)
             VStack(spacing: 8) {
                 resetRow("Очистить избранное", icon: "heart.slash") {
-                    favorites.clearAll()
+                    pendingClear = ClearAction(
+                        title: "Очистить избранное?",
+                        body: "Все добавленные в избранное тайтлы будут удалены.",
+                        perform: { favorites.clearAll() }
+                    )
                 }
                 resetRow("Очистить прогресс", icon: "play.slash.fill") {
-                    ProgressService.shared.clearAll()
+                    pendingClear = ClearAction(
+                        title: "Очистить прогресс?",
+                        body: "Позиции просмотра по всем сериям будут удалены.",
+                        perform: { ProgressService.shared.clearAll() }
+                    )
                 }
                 resetRow("Очистить статистику", icon: "chart.bar.xaxis") {
-                    StatsService.shared.clearAll()
+                    pendingClear = ClearAction(
+                        title: "Очистить статистику?",
+                        body: "Накопленная статистика просмотра будет удалена.",
+                        perform: { StatsService.shared.clearAll() }
+                    )
                 }
                 resetRow("Очистить историю поиска", icon: "magnifyingglass.circle") {
-                    history.clear()
+                    pendingClear = ClearAction(
+                        title: "Очистить историю поиска?",
+                        body: "Последние поисковые запросы будут удалены.",
+                        perform: { history.clear() }
+                    )
                 }
                 resetRow("Сбросить всё", icon: "trash.fill", destructive: true) {
                     showResetAllAlert = true

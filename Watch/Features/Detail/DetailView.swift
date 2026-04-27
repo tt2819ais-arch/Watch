@@ -11,6 +11,7 @@ struct DetailView: View {
     /// presentations attached to the same view, which silently swallowed
     /// presentations on iOS 16/17 in earlier builds.
     @State private var stage: PresentationStage?
+    @State private var noSourcesAlert: Bool = false
 
     enum PresentationStage: Identifiable, Hashable {
         case preplay(Episode)
@@ -113,9 +114,15 @@ struct DetailView: View {
 
     private var watchButton: some View {
         Button {
-            if let ep = bestResumeEpisode() {
-                openPrePlay(for: ep)
+            // If episodes resolved with no playable sources at all, surface
+            // an alert so the user has actionable feedback instead of a
+            // dead button. Otherwise launch the pre-play picker.
+            guard !vm.loading else { return }
+            guard let ep = bestResumeEpisode(), !ep.sources.isEmpty else {
+                noSourcesAlert = true
+                return
             }
+            openPrePlay(for: ep)
         } label: {
             let active = !vm.episodes.isEmpty
             HStack(spacing: 12) {
@@ -159,7 +166,13 @@ struct DetailView: View {
                     radius: 12, x: 0, y: 6)
         }
         .buttonStyle(.plain)
-        .disabled(vm.episodes.isEmpty)
+        .disabled(vm.loading && vm.episodes.isEmpty)
+        .alert("Нет источников", isPresented: $noSourcesAlert) {
+            Button("Обновить") { Task { await vm.loadEpisodes() } }
+            Button("ОК", role: .cancel) {}
+        } message: {
+            Text("Ни один источник не вернул поток для этого тайтла. Попробуйте ещё раз или выберите другой.")
+        }
     }
 
     private func resumeSubtitle(for ep: Episode) -> String {

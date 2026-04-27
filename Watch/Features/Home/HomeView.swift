@@ -111,6 +111,7 @@ final class HomeViewModel: ObservableObject {
     @Published var itemsByID: [String: ContentItem] = [:]
 
     private var didLoadOnce = false
+    private var inFlight: Bool = false
 
     func loadAllIfNeeded() async {
         if didLoadOnce { return }
@@ -118,6 +119,9 @@ final class HomeViewModel: ObservableObject {
     }
 
     func forceReload() async {
+        if inFlight { return }
+        inFlight = true
+        defer { inFlight = false }
         // Run all three feed loads in parallel — speeds up first paint and
         // avoids cancellations cascading from a long serial chain.
         async let anime: Void = loadKind(.anime, into: \.popularAnime)

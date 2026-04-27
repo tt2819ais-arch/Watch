@@ -148,6 +148,7 @@ final class CatalogViewModel: ObservableObject {
 
     private var didLoad = false
     private var didLoadGenres = false
+    private var inFlight: Bool = false
 
     func loadIfNeeded() async {
         if didLoad && !items.isEmpty { return }
@@ -155,6 +156,13 @@ final class CatalogViewModel: ObservableObject {
     }
 
     func forceReload() async {
+        // Dedupe overlapping reloads: rapid filter mutations + pull-to-
+        // refresh + .task re-evaluation could otherwise fire the same
+        // aggregate query three or four times in parallel and saturate the
+        // network with redundant traffic.
+        if inFlight { return }
+        inFlight = true
+        defer { inFlight = false }
         loading = true
         let res = await ContentSourceRegistry.shared.aggregate({ [filter, kind] src in
             try await src.search(filter: filter, kind: kind, page: 1)
@@ -180,7 +188,11 @@ final class CatalogViewModel: ObservableObject {
     }
 
     func loadGenresIfNeeded() async {
+        // Mark as loaded eagerly so a transient failure does not cause us to
+        // re-fetch the same `possible-values-by-field` payload every time
+        // the FilterSheet opens / the view re-evaluates.
         if didLoadGenres { return }
+        didLoadGenres = true
         // Walk every source that supports this kind and merge their genres
         // by name, keeping the first source's id (so the catalog query maps
         // back to a real API genre id rather than a lowercased label).
@@ -196,7 +208,6 @@ final class CatalogViewModel: ObservableObject {
             }
         }
         availableGenres = merged.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-        didLoadGenres = !merged.isEmpty
     }
 
     var activeFilterChips: [String] {
