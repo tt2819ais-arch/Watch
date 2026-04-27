@@ -248,16 +248,18 @@ final class PlayerViewModel: ObservableObject {
         sleepTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
-                await MainActor.run {
-                    guard let self else { return }
-                    if self.isPlaying {
-                        self.sleepRemaining -= 1
-                        if self.sleepRemaining <= 0 {
-                            self.player.pause()
-                            self.sleepTimer = .off
-                        }
+                let done = await MainActor.run { () -> Bool in
+                    guard let self else { return true }
+                    guard self.isPlaying else { return false }
+                    self.sleepRemaining -= 1
+                    if self.sleepRemaining <= 0 {
+                        self.player.pause()
+                        self.sleepTimer = .off
+                        return true
                     }
+                    return false
                 }
+                if done { break }
             }
         }
     }
