@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Unsigned IPA
-    runs-on: macos-14
+    runs-on: macos-15
 
     env:
       SCHEME: Watch
@@ -21,6 +21,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          # Pick the newest Xcode installed on the runner so xcodegen's
+          # project file format matches.
+          XC=$(ls -1d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then
+            sudo xcode-select -s "$XC/Contents/Developer"
+            echo "Using $XC"
+          fi
 
       - name: Show toolchain
         run: |
