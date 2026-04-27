@@ -22,6 +22,7 @@ from .db import (
 )
 from .deps import get_current_user, get_db, get_optional_user, require_admin
 from .schemas import (
+    ChangePasswordRequest,
     FavoriteIn,
     FavoriteOut,
     LoginRequest,
@@ -56,20 +57,44 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 
 def _bootstrap_admin() -> None:
-    if not settings.admin_password:
-        log.warning("WATCH_ADMIN_PASSWORD not set — skipping bootstrap admin.")
-        return
+    """Ensure an admin account exists.
+
+    1. If the bootstrap user already lives in the DB, just (re-)assert
+       its admin/verified/is_official flags.
+    2. Otherwise, create it. Password is taken from
+       WATCH_ADMIN_PASSWORD if provided; if unset, a random password is
+       generated and persisted to /data/admin_password.txt so the
+       operator can recover it without redeploying. A clearly-marked
+       "WATCH_BOOTSTRAP_ADMIN_PASSWORD=…" line is also emitted to the
+       container's stdout so it shows up in `flyctl logs`.
+    """
+    import secrets as _secrets
+    from pathlib import Path as _Path
+
     with session_scope() as s:
         existing = s.scalar(select(User).where(User.nickname_lower == settings.admin_nickname.lower()))
         if existing:
             existing.role = "admin"
             existing.verified = True
             existing.is_official = True
+            # When WATCH_ADMIN_PASSWORD is set in the environment and
+            # doesn't match the stored hash, overwrite — operators use
+            # this to rotate the bootstrap password.
+            if settings.admin_password and not verify_password(settings.admin_password, existing.password_hash):
+                existing.password_hash = hash_password(settings.admin_password)
+                log.info("Bootstrap admin '%s' password rotated.", settings.admin_nickname)
             return
+
+        password = settings.admin_password
+        generated = False
+        if not password:
+            password = _secrets.token_urlsafe(12)
+            generated = True
+
         u = User(
             nickname=settings.admin_nickname,
             nickname_lower=settings.admin_nickname.lower(),
-            password_hash=hash_password(settings.admin_password),
+            password_hash=hash_password(password),
             role="admin",
             verified=True,
             is_official=True,
@@ -77,6 +102,18 @@ def _bootstrap_admin() -> None:
         )
         s.add(u)
         log.info("Bootstrap admin '%s' created.", settings.admin_nickname)
+
+        if generated:
+            try:
+                p = _Path(settings.db_path).parent / "admin_password.txt"
+                p.write_text(f"{settings.admin_nickname}:{password}\n", encoding="utf-8")
+            except Exception as e:
+                log.warning("Could not persist admin password file: %s", e)
+            log.info(
+                "WATCH_BOOTSTRAP_ADMIN_PASSWORD=%s nickname=%s",
+                password,
+                settings.admin_nickname,
+            )
 
 
 app = FastAPI(title="Watch backend", version="0.2.0")
@@ -147,8 +184,15 @@ def search_users(
     q = query.strip().lower()
     if not q:
         return []
+    # Escape SQL LIKE wildcards (`%` and `_`) so that crafted queries like
+    # "%" can't enumerate the entire user table — they must match the
+    # literal characters instead.
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     rows = db.scalars(
-        select(User).where(User.nickname_lower.like(f"{q}%")).order_by(User.nickname_lower).limit(20)
+        select(User)
+        .where(User.nickname_lower.like(f"{escaped}%", escape="\\"))
+        .order_by(User.nickname_lower)
+        .limit(20)
     ).all()
     return [to_public_user(r) for r in rows]
 
@@ -177,6 +221,22 @@ def update_me(
         viewer.privacy_hide_favorites = body.privacy_hide_favorites
     if body.privacy_hide_history is not None:
         viewer.privacy_hide_history = body.privacy_hide_history
+    db.commit()
+    db.refresh(viewer)
+    return to_public_user(viewer)
+
+
+@app.post("/auth/change_password", response_model=PublicUser, tags=["auth"])
+def change_password(
+    body: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    viewer: User = Depends(get_current_user),
+) -> PublicUser:
+    if not verify_password(body.current_password, viewer.password_hash):
+        raise HTTPException(status_code=401, detail="Неверный текущий пароль")
+    if body.new_password == body.current_password:
+        raise HTTPException(status_code=400, detail="Новый пароль совпадает со старым")
+    viewer.password_hash = hash_password(body.new_password)
     db.commit()
     db.refresh(viewer)
     return to_public_user(viewer)

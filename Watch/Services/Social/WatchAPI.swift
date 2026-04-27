@@ -141,6 +141,27 @@ actor WatchAPI {
         try await voidRequest("/messages/block/\(percentEncode(nickname))", method: "DELETE", requiresAuth: true)
     }
 
+    // MARK: - Public stats
+
+    func communityStats() async throws -> CommunityStats {
+        async let onlineFetch: OnlineStat = request(
+            "/stats/online", method: "GET",
+            body: Optional<EmptyBody>.none, requiresAuth: false
+        )
+        async let countFetch: UsersCountStat = request(
+            "/users/count", method: "GET",
+            body: Optional<EmptyBody>.none, requiresAuth: false
+        )
+        let online = try await onlineFetch
+        let count = try await countFetch
+        return CommunityStats(online: online.online, total: count.total, newLast7d: count.newLast7d)
+    }
+
+    func changePassword(current: String, new: String) async throws -> PublicUser {
+        let body = ["current_password": current, "new_password": new]
+        return try await request("/auth/change_password", method: "POST", body: body, requiresAuth: true)
+    }
+
     // MARK: - Admin
 
     func adminVerify(nickname: String) async throws -> PublicUser {

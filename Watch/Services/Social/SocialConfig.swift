@@ -8,7 +8,7 @@ enum SocialConfig {
            let url = URL(string: raw), !raw.isEmpty {
             return url
         }
-        return URL(string: "https://watch-backend-vvqgiseh.fly.dev")!
+        return URL(string: "https://watch-backend-cwwkqdui.fly.dev")!
     }()
 
     /// Custom URL scheme for sharing user profile links: `watch://u/<nickname>`.

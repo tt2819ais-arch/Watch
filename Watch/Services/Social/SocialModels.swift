@@ -84,6 +84,24 @@ struct SocialTokenResponse: Codable {
     let user: PublicUser
 }
 
+// MARK: - Public stats
+
+struct UsersCountStat: Codable, Hashable {
+    let total: Int
+    let newLast7d: Int
+}
+
+struct OnlineStat: Codable, Hashable {
+    let online: Int
+    let windowMinutes: Int
+}
+
+struct CommunityStats: Hashable {
+    var online: Int
+    var total: Int
+    var newLast7d: Int
+}
+
 // MARK: - Errors
 
 enum WatchAPIError: Error, LocalizedError {

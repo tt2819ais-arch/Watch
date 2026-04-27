@@ -6,15 +6,52 @@ struct UserSearchView: View {
     @State private var query: String = ""
     @State private var results: [PublicUser] = []
     @State private var searchTask: Task<Void, Never>?
+    @State private var stats: CommunityStats?
 
     var body: some View {
         VStack(spacing: 0) {
             searchBar
+            statsHeader
             list
         }
         .background(theme.palette.background.ignoresSafeArea())
         .navigationTitle("Поиск пользователей")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await refreshStats()
+        }
+    }
+
+    @ViewBuilder
+    private var statsHeader: some View {
+        if let s = stats {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 6, height: 6)
+                Text("\(s.online) онлайн")
+                Text("•")
+                Text("Всего: \(s.total)")
+                if s.newLast7d > 0 {
+                    Text("•")
+                    Text("+\(s.newLast7d) за неделю")
+                }
+                Spacer()
+            }
+            .font(AppFont.caption())
+            .foregroundStyle(theme.palette.secondaryText)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+    }
+
+    private func refreshStats() async {
+        do {
+            let s = try await WatchAPI.shared.communityStats()
+            await MainActor.run { self.stats = s }
+        } catch {
+            // Don't block search UI if the stats endpoint is unreachable.
+        }
     }
 
     private var searchBar: some View {
