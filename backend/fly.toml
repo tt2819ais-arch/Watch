@@ -1,0 +1,31 @@
+# fly.toml — Watch backend (FastAPI + SQLite on persistent volume)
+# Deploy with `flyctl deploy --remote-only` from the backend/ directory.
+
+primary_region = "fra"
+
+[build]
+
+[env]
+  WATCH_DB_PATH = "/data/watch.db"
+  PORT = "8080"
+
+[[mounts]]
+  source = "watch_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 200
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
