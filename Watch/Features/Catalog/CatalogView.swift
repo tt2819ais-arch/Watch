@@ -43,7 +43,7 @@ struct CatalogView: View {
             await vm.load()
         }
         .refreshable { await vm.load() }
-        .onChange(of: vm.filter) { _, _ in
+        .onChange(of: vm.filter) { _ in
             Task { await vm.load() }
         }
     }

@@ -56,7 +56,7 @@ final class AnilibriaSource: ContentSource, @unchecked Sendable {
         guard kind == .anime else { return [] }
         let url = api.appendingPathComponent("anime/genres")
         let arr: [GenreDTO] = try await HTTPClient.shared.get(url, as: [GenreDTO].self)
-        return arr.map { Genre(id: String($0.id), name: $0.name, kind: .anime) }
+        return arr.map { Genre(id: String($0.id), name: $0.name) }
     }
 
     // MARK: - Internals
@@ -204,7 +204,7 @@ private struct NameDTO: Decodable {
 
 private struct PosterDTO: Decodable {
     let src: String?
-    let optimized: PosterDTO?
+    let optimized: OptimizedSrc?
 }
 
 private struct EpisodeDTO: Decodable {
@@ -221,7 +221,11 @@ private struct EpisodeDTO: Decodable {
 
 private struct PreviewDTO: Decodable {
     let src: String?
-    let optimized: PreviewDTO?
+    let optimized: OptimizedSrc?
+}
+
+private struct OptimizedSrc: Decodable {
+    let src: String?
 }
 
 private struct ReleaseDetail: Decodable {

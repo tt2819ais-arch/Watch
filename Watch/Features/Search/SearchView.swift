@@ -17,8 +17,8 @@ struct SearchView: View {
         .navigationTitle("Поиск")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { focused = true }
-        .onChange(of: vm.query) { _, _ in vm.fetchSuggestionsDebounced() }
-        .onChange(of: vm.kind) { _, _ in vm.fetchSuggestionsDebounced() }
+        .onChange(of: vm.query) { _ in vm.fetchSuggestionsDebounced() }
+        .onChange(of: vm.kind) { _ in vm.fetchSuggestionsDebounced() }
     }
 
     private var input: some View {

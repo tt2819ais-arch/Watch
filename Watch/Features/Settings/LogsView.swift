@@ -113,7 +113,7 @@ struct LogsView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
             }
-            .onChange(of: filtered.count) { _, _ in
+            .onChange(of: filtered.count) { _ in
                 if let last = filtered.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                 }

@@ -109,7 +109,7 @@ final class PoiskKinoSource: ContentSource, @unchecked Sendable {
                               resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "field", value: "genres.name")]
         let arr: [PoiskKinoFieldValue] = try await HTTPClient.shared.get(c.url!, as: [PoiskKinoFieldValue].self, headers: authHeaders())
-        return arr.map { Genre(id: $0.name, name: $0.name, kind: kind) }
+        return arr.map { Genre(id: $0.name, name: $0.name) }
     }
 
     // MARK: - Internal
