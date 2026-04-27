@@ -149,6 +149,10 @@ final class CatalogViewModel: ObservableObject {
     private var didLoad = false
     private var didLoadGenres = false
     private var inFlight: Bool = false
+    /// Set when a `forceReload()` was requested while another reload was
+    /// already running. Once the in-flight reload finishes we run again
+    /// so a filter change made mid-flight isn't silently dropped.
+    private var reloadPending: Bool = false
 
     func loadIfNeeded() async {
         if didLoad && !items.isEmpty { return }
@@ -159,10 +163,14 @@ final class CatalogViewModel: ObservableObject {
         // Dedupe overlapping reloads: rapid filter mutations + pull-to-
         // refresh + .task re-evaluation could otherwise fire the same
         // aggregate query three or four times in parallel and saturate the
-        // network with redundant traffic.
-        if inFlight { return }
+        // network with redundant traffic. If a reload arrives while one
+        // is in-flight we record the request and re-run once the current
+        // one drains so filter changes are never dropped.
+        if inFlight {
+            reloadPending = true
+            return
+        }
         inFlight = true
-        defer { inFlight = false }
         loading = true
         let res = await ContentSourceRegistry.shared.aggregate({ [filter, kind] src in
             try await src.search(filter: filter, kind: kind, page: 1)
@@ -175,6 +183,11 @@ final class CatalogViewModel: ObservableObject {
         }
         loading = false
         didLoad = true
+        inFlight = false
+        if reloadPending {
+            reloadPending = false
+            await forceReload()
+        }
     }
 
     private func applySort(_ list: [ContentItem]) -> [ContentItem] {

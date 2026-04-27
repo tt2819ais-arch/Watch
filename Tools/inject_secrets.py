@@ -21,13 +21,19 @@ def _swift_escape(value: str) -> str:
     """Escape a string so it lives inside a Swift "..." literal safely.
 
     Swift treats `\\` as a literal backslash, `"` ends the string,
-    and `\\(expr)` is interpolation that would *execute* expr at
-    runtime — exactly the injection vector we don't want a secret env
-    var to be able to trigger.
+    `\\(expr)` is interpolation that would *execute* expr at runtime,
+    and a raw newline byte breaks the single-line `"..."` literal —
+    which would silently produce invalid Swift if a CI secret was
+    misconfigured to include trailing whitespace. We escape to the
+    Swift forms (`\\\\`, `\\"`, `\\n`, `\\r`, `\\0`) so any token can
+    be safely embedded.
     """
     return (
         value.replace("\\", "\\\\")
              .replace('"', '\\"')
+             .replace("\n", "\\n")
+             .replace("\r", "\\r")
+             .replace("\0", "\\0")
     )
 
 
