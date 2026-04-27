@@ -244,7 +244,7 @@ struct SelfProfileView: View {
         // Always share the custom-scheme link so taps open the app via
         // onOpenURL. The backend's `share_url` points at a placeholder
         // domain that doesn't exist yet.
-        URL(string: "\(SocialConfig.urlScheme)://\(SocialConfig.userPathPrefix)/\(user.nickname)")!
+        SocialConfig.profileShareURL(forNickname: user.nickname)
     }
 
     private func stubUser(_ nick: String) -> PublicUser {

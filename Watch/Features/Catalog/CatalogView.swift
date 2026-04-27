@@ -180,7 +180,11 @@ final class CatalogViewModel: ObservableObject {
     private func applySort(_ list: [ContentItem]) -> [ContentItem] {
         switch filter.sort {
         case .popularity: return list
-        case .recent:     return list.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+        // Server-side ordering already returns newest items first when
+        // .recent is passed (e.g. PoiskKino sorts by createdAt desc), so
+        // keep the merged order rather than re-sorting by year and
+        // collapsing this option into ".year".
+        case .recent:     return list
         case .year:       return list.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
         case .rating:     return list.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
         case .name:       return list.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
