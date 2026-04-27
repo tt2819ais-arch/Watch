@@ -235,12 +235,19 @@ struct DetailView: View {
                 Text(vm.item.title)
                     .font(AppFont.largeTitle())
                     .foregroundStyle(theme.palette.primaryText)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let orig = vm.item.originalTitle, orig != vm.item.title {
                     Text(orig)
                         .font(AppFont.body())
                         .foregroundStyle(theme.palette.secondaryText)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
@@ -248,18 +255,24 @@ struct DetailView: View {
     }
 
     private var meta: some View {
-        HStack(spacing: 8) {
-            if let y = vm.item.year {
-                tag("\(String(y))")
+        // Long titles + many genres used to push tags off-screen because
+        // they were laid out in a single non-wrapping HStack. Render the
+        // chips in a horizontally-scrollable strip so they always stay
+        // inside the safe area.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if let y = vm.item.year {
+                    tag("\(String(y))")
+                }
+                tag(vm.item.kind.title)
+                if let total = vm.item.totalEpisodes, vm.item.kind != .movie {
+                    tag("\(total) серий")
+                }
+                ForEach(vm.item.genres.prefix(6), id: \.self) { g in
+                    tag(g)
+                }
             }
-            tag(vm.item.kind.title)
-            if let total = vm.item.totalEpisodes, vm.item.kind != .movie {
-                tag("\(total) серий")
-            }
-            ForEach(vm.item.genres.prefix(3), id: \.self) { g in
-                tag(g)
-            }
-            Spacer()
+            .padding(.vertical, 1)
         }
     }
 

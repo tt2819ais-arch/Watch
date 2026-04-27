@@ -87,30 +87,49 @@ final class ContentSourceRegistry: ObservableObject {
         }
     }
 
-    /// Run `work` with a hard deadline; return `onTimeout()` if it doesn't
-    /// finish in time. The work task is cancelled on timeout.
+    /// Run `work` with a hard deadline; return `onTimeout()` only if the
+    /// work hasn't completed by the time the timer naturally expires.
+    ///
+    /// SwiftUI re-evaluates `.task` aggressively, and when the parent task
+    /// is cancelled the child `Task.sleep` returns early via cancellation.
+    /// We must distinguish that case from a real timeout, otherwise every
+    /// view re-render cancels the in-flight aggregate and reports a fake
+    /// "timed out after 12s" warning while clearing the catalog grid.
     static func withTimeout<T: Sendable>(
         seconds: Double,
         operation work: @escaping @Sendable () async -> T,
         onTimeout: @escaping @Sendable () async -> T
     ) async -> T {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask { await work() }
+        let started = Date()
+        return await withTaskGroup(of: TimedResult<T>.self) { group in
+            group.addTask { .work(await work()) }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
+                return .timer
             }
             for await result in group {
-                if let value = result {
+                switch result {
+                case .work(let value):
                     group.cancelAll()
                     return value
+                case .timer:
+                    let elapsed = Date().timeIntervalSince(started)
+                    // Sleep returned early because we got cancelled — keep
+                    // waiting on the work task instead of faking a timeout.
+                    if elapsed + 0.5 < seconds {
+                        continue
+                    }
+                    group.cancelAll()
+                    return await onTimeout()
                 }
-                // Timer fired first.
-                group.cancelAll()
-                return await onTimeout()
             }
             return await onTimeout()
         }
+    }
+
+    enum TimedResult<T: Sendable>: Sendable {
+        case work(T)
+        case timer
     }
 
     static func dedup(_ items: [ContentItem]) -> [ContentItem] {

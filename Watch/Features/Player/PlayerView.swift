@@ -46,6 +46,35 @@ struct PlayerView: View {
                         .ignoresSafeArea()
                         .transition(.opacity)
                 }
+
+                // Always-visible escape hatch. If the embedded webview never
+                // loads or the AVPlayer can't open the URL, the regular
+                // controls overlay is hidden behind the gesture surface and
+                // the user has no way to back out. This always-on Close
+                // button guarantees they can leave the screen.
+                if !vm.locked && !vm.controlsVisible {
+                    VStack {
+                        HStack {
+                            Button {
+                                dismiss()
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 16, weight: .heavy))
+                                    .foregroundColor(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(Color.black.opacity(0.55))
+                                    .clipShape(Circle())
+                            }
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 8)
+                    .padding(.leading, 14)
+                    .ignoresSafeArea(edges: .bottom)
+                    .allowsHitTesting(true)
+                    .zIndex(50)
+                }
             }
         }
         .statusBarHidden(true)
@@ -227,12 +256,22 @@ struct EmbedWebPlayer: UIViewRepresentable {
         v.scrollView.isScrollEnabled = false
         v.backgroundColor = .black
         v.isOpaque = false
+        // Kodik (and similar) embeds gate on document.referrer / a desktop
+        // UA — without these the iframe ends up blank or shows a "this
+        // domain isn't allowed" message. Pretending to be desktop Safari
+        // makes the players actually serve the video.
+        v.customUserAgent =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
+            "(KHTML, like Gecko) Version/17.5 Safari/605.1.15"
         return v
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         if let url = url, uiView.url != url {
-            uiView.load(URLRequest(url: url))
+            var req = URLRequest(url: url)
+            // A non-empty Referer also unblocks several embed providers.
+            req.setValue("https://kodik.cc/", forHTTPHeaderField: "Referer")
+            uiView.load(req)
         }
     }
 }
