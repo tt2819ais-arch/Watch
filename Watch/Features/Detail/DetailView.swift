@@ -420,14 +420,14 @@ final class DetailViewModel: ObservableObject {
                 let kpID = item.id.split(separator: "|").last.map(String.init) ?? ""
                 if !kpID.isEmpty {
                     do {
-                        collected.append(contentsOf: try await kodik.episodesByKinopoiskID(kpID))
+                        collected.append(contentsOf: try await kodik.episodesByKinopoiskID(kpID, kind: item.kind))
                     } catch {
                         Logger.shared.warn("Kodik fallback by kinopoisk_id failed: \(error)", category: .source)
                     }
                 }
                 if collected.isEmpty {
                     do {
-                        collected.append(contentsOf: try await kodik.episodesByTitle(item.title, year: item.year))
+                        collected.append(contentsOf: try await kodik.episodesByTitle(item.title, year: item.year, kind: item.kind))
                     } catch {
                         Logger.shared.warn("Kodik fallback by title failed: \(error)", category: .source)
                     }

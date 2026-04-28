@@ -91,7 +91,9 @@ final class KodikSource: ContentSource, @unchecked Sendable {
     // MARK: - Detail / episodes
 
     func episodes(for item: ContentItem) async throws -> [Episode] {
-        // Direct lookup by Kodik internal id.
+        // Direct lookup by Kodik internal id. The id alone is unique so no
+        // need to apply a kind filter — Kodik returns one record matching
+        // exactly that id.
         if let originalID = parseOriginalID(item.id) {
             let raw = try await search(parameters: [
                 "id": originalID,
@@ -100,26 +102,33 @@ final class KodikSource: ContentSource, @unchecked Sendable {
             ])
             return buildEpisodes(from: raw)
         }
-        // Cross-source lookup: PoiskKino → Kodik via kinopoisk_id.
+        // Cross-source lookup: PoiskKino → Kodik via kinopoisk_id. Restrict
+        // to types matching the user's expected kind so anime titles
+        // sharing a Kinopoisk id with a movie don't pollute the voiceover
+        // picker (e.g. searching for the film "Avatar" used to surface
+        // anime-serial dub tracks).
         if item.sourceID == "poiskkino", let kpID = poiskkinoOriginalID(from: item.id) {
-            return try await episodesByKinopoiskID(kpID)
+            return try await episodesByKinopoiskID(kpID, kind: item.kind)
         }
-        // Last-resort: search by title.
-        return try await episodesByTitle(item.title, year: item.year)
+        // Last-resort: search by title, again restricted to the expected
+        // kind on both server and client side.
+        return try await episodesByTitle(item.title, year: item.year, kind: item.kind)
     }
 
     /// Look up Kodik streams for a Kinopoisk id.
-    func episodesByKinopoiskID(_ kpID: String) async throws -> [Episode] {
-        let raw = try await search(parameters: [
+    func episodesByKinopoiskID(_ kpID: String, kind: ContentKind? = nil) async throws -> [Episode] {
+        var params: [String: String] = [
             "kinopoisk_id": kpID,
             "with_seasons": "true",
             "with_episodes": "true"
-        ])
-        return buildEpisodes(from: raw)
+        ]
+        if let kind { params["types"] = typesParam(for: kind) }
+        let raw = try await search(parameters: params)
+        return buildEpisodes(from: raw, kind: kind)
     }
 
     /// Fuzzy fallback: search by title.
-    func episodesByTitle(_ title: String, year: Int?) async throws -> [Episode] {
+    func episodesByTitle(_ title: String, year: Int?, kind: ContentKind? = nil) async throws -> [Episode] {
         var params: [String: String] = [
             "title": title,
             "with_seasons": "true",
@@ -127,8 +136,9 @@ final class KodikSource: ContentSource, @unchecked Sendable {
             "limit": "10"
         ]
         if let year { params["year"] = String(year) }
+        if let kind { params["types"] = typesParam(for: kind) }
         let raw = try await search(parameters: params)
-        return buildEpisodes(from: raw)
+        return buildEpisodes(from: raw, kind: kind)
     }
 
     private func poiskkinoOriginalID(from compositeID: String) -> String? {
@@ -233,10 +243,18 @@ final class KodikSource: ContentSource, @unchecked Sendable {
         return String(parts[2])
     }
 
-    private func buildEpisodes(from results: [KodikResult]) -> [Episode] {
+    private func buildEpisodes(from results: [KodikResult], kind: ContentKind? = nil) -> [Episode] {
         var byNumber: [Int: [VideoSource]] = [:]
         for r in results {
             guard let link = r.absoluteLink else { continue }
+            // Defence-in-depth: even when the API was asked for a specific
+            // `types=...` set, Kodik occasionally returns mismatched rows
+            // (e.g. anime-serial dubs of a film with the same title). Drop
+            // anything that doesn't match the user's chosen kind so the
+            // voiceover picker stays clean.
+            if let kind, let inferred = inferKind(from: r.type), inferred != kind {
+                continue
+            }
             let voice = VoiceTrack(
                 id: "kodik_\(r.translation?.id ?? 0)",
                 studio: r.translation?.title ?? "Kodik",
