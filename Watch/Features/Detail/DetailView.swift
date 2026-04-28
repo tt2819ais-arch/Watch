@@ -44,6 +44,7 @@ struct DetailView: View {
                     descriptionBlock(desc)
                 }
                 episodesBlock
+                relatedBlock
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40)
@@ -66,6 +67,12 @@ struct DetailView: View {
                let ep = vm.episodes.first(where: { $0.number == n }) {
                 openPrePlay(for: ep)
             }
+        }
+        .task {
+            // Run in parallel with episode loading; safe to fire even if
+            // the user navigates away — the @MainActor VM short-circuits
+            // a duplicate load.
+            await vm.loadRelated()
         }
         .sheet(
             isPresented: Binding(
@@ -337,6 +344,34 @@ struct DetailView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var relatedBlock: some View {
+        if !vm.related.isEmpty || vm.relatedLoading {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Похожее")
+                        .font(AppFont.title3())
+                        .foregroundStyle(theme.palette.primaryText)
+                    Spacer()
+                    if vm.relatedLoading { ProgressView().tint(theme.palette.accent) }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(vm.related) { other in
+                            NavigationLink(value: other) {
+                                PosterCard(item: other)
+                                    .frame(width: 140)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
 }
 
 struct EpisodeRow: View {
@@ -420,11 +455,38 @@ final class DetailViewModel: ObservableObject {
     @Published var episodes: [Episode] = []
     @Published var loading: Bool = false
     @Published var isFavorite: Bool = false
+    @Published var related: [ContentItem] = []
+    @Published var relatedLoading: Bool = false
 
     init(item: ContentItem, autoplayEpisodeNumber: Int? = nil) {
         self.item = item
         self.autoplayEpisodeNumber = autoplayEpisodeNumber
         self.isFavorite = FavoritesService.shared.isFavorite(item.id)
+    }
+
+    /// Pull the first page of catalog content for this kind across all
+    /// sources, then rank by genre overlap with the current item. Items
+    /// with the same composite id as the current one are excluded.
+    func loadRelated() async {
+        guard related.isEmpty, !relatedLoading else { return }
+        relatedLoading = true
+        defer { relatedLoading = false }
+        let kind = item.kind
+        let baseGenres = Set(item.genres.map { $0.lowercased() })
+        let res = await ContentSourceRegistry.shared.aggregate({ src in
+            try await src.search(filter: CatalogFilter(), kind: kind, page: 1)
+        }, for: kind)
+        let scored: [(item: ContentItem, score: Int)] = res
+            .filter { $0.id != self.item.id }
+            .map { other in
+                let overlap = Set(other.genres.map { $0.lowercased() }).intersection(baseGenres).count
+                return (other, overlap)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                return (lhs.item.rating ?? 0) > (rhs.item.rating ?? 0)
+            }
+        related = Array(scored.prefix(12).map { $0.item })
     }
 
     func loadEpisodes() async {
