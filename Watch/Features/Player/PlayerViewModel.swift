@@ -279,9 +279,22 @@ final class PlayerViewModel: ObservableObject {
 
     // MARK: - Skip intro / outro
 
+    /// Hardcoded heuristic fallback intro length (in seconds) used when
+    /// the source didn't provide opening timecodes. 85s catches the bulk
+    /// of TV-anime openings (~90s with a few seconds of "previously on")
+    /// without skipping past the start of the actual episode.
+    static let heuristicIntroSeconds: Double = 85
+    /// How long before the end of the file we treat as "outro" when no
+    /// markers are present. Covers credits + a brief next-episode preview
+    /// without cutting off real story content.
+    static let heuristicOutroSeconds: Double = 90
+
     func skipIntro() {
         if let stop = currentEpisode.openingStop {
             seek(to: stop)
+        } else {
+            // No marker — fall back to a fixed offset
+            seek(to: Self.heuristicIntroSeconds)
         }
     }
 
@@ -290,6 +303,10 @@ final class PlayerViewModel: ObservableObject {
             gotoEpisode(next)
         } else if let stop = currentEpisode.endingStop {
             seek(to: stop)
+        } else if duration > 0 {
+            // Last resort — jump to the very end so the player advances
+            // through the final-item callback chain (recordProgress, etc.)
+            seek(to: duration)
         }
     }
 
@@ -456,7 +473,8 @@ final class PlayerViewModel: ObservableObject {
         lastTickTime = time
         currentTime = time
 
-        // Intro/outro markers
+        // Intro/outro markers — preferred path uses real timecodes when
+        // the source provided them (Anilibria does, others usually don't).
         if let s = currentEpisode.openingStart, let e = currentEpisode.openingStop, time >= s, time <= e {
             introSkipAvailable = true
             if settings.autoSkipIntro && !didAutoSkipIntro {
@@ -464,9 +482,17 @@ final class PlayerViewModel: ObservableObject {
                 seek(to: e)
                 Logger.shared.info("Auto-skipped intro to \(Int(e))s", category: .player)
             }
+        } else if currentEpisode.openingStart == nil
+                    && item.kind != .movie
+                    && time >= 5 && time < Self.heuristicIntroSeconds {
+            // Heuristic fallback: for series/anime episodes without
+            // explicit markers, surface the skip button in the first ~85s
+            // so the user can get to the real content with one tap.
+            introSkipAvailable = true
         } else {
             introSkipAvailable = false
         }
+
         if let s = currentEpisode.endingStart, let e = currentEpisode.endingStop, time >= s, time <= e {
             outroSkipAvailable = true
             if settings.autoSkipOutro && !didAutoSkipOutro {
@@ -474,6 +500,14 @@ final class PlayerViewModel: ObservableObject {
                 seek(to: e)
                 Logger.shared.info("Auto-skipped outro to \(Int(e))s", category: .player)
             }
+        } else if currentEpisode.endingStart == nil
+                    && item.kind != .movie
+                    && duration > 0
+                    && time >= duration - Self.heuristicOutroSeconds
+                    && nextEpisode() != nil {
+            // Heuristic fallback: when we're within the last ~90s of an
+            // episode and a next one exists, offer "К следующей серии".
+            outroSkipAvailable = true
         } else {
             outroSkipAvailable = false
         }
