@@ -61,6 +61,11 @@ final class AuthService: ObservableObject {
             await MainActor.run { self.persist(user: me) }
         } catch WatchAPIError.unauthorized {
             await MainActor.run { self.signOut() }
+        } catch WatchAPIError.transport(let inner) {
+            // Ignore SwiftUI .task cancellations — they're not real failures.
+            if (inner as NSError).code != NSURLErrorCancelled {
+                Logger.shared.warn("auth refresh failed: \(inner)", category: .network)
+            }
         } catch {
             Logger.shared.warn("auth refresh failed: \(error)", category: .network)
         }

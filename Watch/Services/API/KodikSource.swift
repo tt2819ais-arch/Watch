@@ -60,7 +60,17 @@ final class KodikSource: ContentSource, @unchecked Sendable {
                 "with_material_data": "true"
             ])
         }
-        return raw.compactMap { mapToItem($0, kind: kind) }
+        return stableSort(raw).compactMap { mapToItem($0, kind: kind) }
+    }
+
+    /// Force a deterministic order so subsequent fetches don't shuffle the
+    /// catalog. Sort newest year first; tie-break by id (lexicographic).
+    private func stableSort(_ raw: [KodikResult]) -> [KodikResult] {
+        raw.sorted { a, b in
+            let ay = a.year ?? 0, by = b.year ?? 0
+            if ay != by { return ay > by }
+            return (a.id ?? "") > (b.id ?? "")
+        }
     }
 
     func popular(kind: ContentKind, limit: Int) async throws -> [ContentItem] {
@@ -70,7 +80,12 @@ final class KodikSource: ContentSource, @unchecked Sendable {
             "sort": "year",
             "with_material_data": "true"
         ])
-        return raw.compactMap { mapToItem($0, kind: kind) }
+        // Kodik /list returns items grouped by year but doesn't guarantee
+        // a stable order within the same year — the result reshuffles on
+        // every request. Apply a deterministic secondary key (id desc) so
+        // the catalog grid doesn't re-arrange whenever the user pulls to
+        // refresh or reopens the tab.
+        return stableSort(raw).compactMap { mapToItem($0, kind: kind) }
     }
 
     // MARK: - Detail / episodes

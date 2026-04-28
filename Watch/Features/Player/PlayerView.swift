@@ -248,6 +248,20 @@ final class PlayerContainerView: UIView {
 struct EmbedWebPlayer: UIViewRepresentable {
     let url: URL?
 
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var loadedURL: URL?
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            Logger.shared.warn("Embed webview failed: \(error.localizedDescription)", category: .player)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            Logger.shared.warn("Embed webview provisional fail: \(error.localizedDescription)", category: .player)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.allowsInlineMediaPlayback = true
@@ -256,6 +270,7 @@ struct EmbedWebPlayer: UIViewRepresentable {
         v.scrollView.isScrollEnabled = false
         v.backgroundColor = .black
         v.isOpaque = false
+        v.navigationDelegate = context.coordinator
         // Kodik (and similar) embeds gate on document.referrer / a desktop
         // UA — without these the iframe ends up blank or shows a "this
         // domain isn't allowed" message. Pretending to be desktop Safari
@@ -267,12 +282,30 @@ struct EmbedWebPlayer: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        if let url = url, uiView.url != url {
-            var req = URLRequest(url: url)
-            // A non-empty Referer also unblocks several embed providers.
-            req.setValue("https://kodik.cc/", forHTTPHeaderField: "Referer")
-            uiView.load(req)
-        }
+        guard let url = url, context.coordinator.loadedURL != url else { return }
+        context.coordinator.loadedURL = url
+        // Wrap the embed URL in a tiny HTML shell whose `baseURL` we set to
+        // the Kodik origin. WKWebView's URLRequest "Referer" header is
+        // stripped by the system on cross-origin loads, but document.referrer
+        // is honoured when the iframe is embedded inside a parent page that
+        // we control. This is the only reliable way to make Kodik (and most
+        // ddos-guarded embed players) hand back the actual video stream on
+        // iOS.
+        let host = url.host ?? "kodik.cc"
+        let parent = "https://\(host == "kodikplayer.com" ? "kodik.cc" : host)/"
+        let html = """
+        <!doctype html>
+        <html><head>
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+          <style>
+            html,body{margin:0;padding:0;background:#000;height:100%;width:100%;overflow:hidden;}
+            iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
+          </style>
+        </head><body>
+          <iframe src="\(url.absoluteString)" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+        </body></html>
+        """
+        uiView.loadHTMLString(html, baseURL: URL(string: parent))
     }
 }
 

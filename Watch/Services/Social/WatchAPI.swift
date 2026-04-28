@@ -241,7 +241,14 @@ actor WatchAPI {
         do {
             (data, resp) = try await session.data(for: req)
         } catch {
-            Logger.shared.warn("WatchAPI \(method) \(url.absoluteString) transport: \(error.localizedDescription)", category: .network)
+            // SwiftUI cancels in-flight tasks aggressively when a view's
+            // .task is re-evaluated (tab switch, sheet dismissal). Those
+            // cancellations are not real errors and shouldn't pollute the
+            // log; just rethrow so the caller's catch logic decides.
+            let nsErr = error as NSError
+            if nsErr.code != NSURLErrorCancelled {
+                Logger.shared.warn("WatchAPI \(method) \(url.absoluteString) transport: \(error.localizedDescription)", category: .network)
+            }
             throw WatchAPIError.transport(error)
         }
 

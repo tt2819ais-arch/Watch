@@ -155,7 +155,12 @@ final class CatalogViewModel: ObservableObject {
     private var reloadPending: Bool = false
 
     func loadIfNeeded() async {
-        if didLoad && !items.isEmpty { return }
+        // Once we've attempted a load, don't refetch on every tab switch /
+        // .task re-evaluation. The user can pull-to-refresh or change a
+        // filter to force a reload. Without this, every single navigation
+        // back into this tab would re-aggregate all 4 sources and visibly
+        // flash the skeletons even though the content hasn't changed.
+        if didLoad { return }
         await forceReload()
     }
 

@@ -281,6 +281,11 @@ struct SelfProfileView: View {
         do {
             let p = try await WatchAPI.shared.publicProfile(nickname: me.nickname)
             await MainActor.run { self.profile = p }
+        } catch WatchAPIError.transport(let inner) {
+            // Suppress noise from SwiftUI cancellations.
+            if (inner as NSError).code != NSURLErrorCancelled {
+                Logger.shared.warn("self-profile snapshot failed: \(inner)", category: .network)
+            }
         } catch {
             Logger.shared.warn("self-profile snapshot failed: \(error)", category: .network)
         }

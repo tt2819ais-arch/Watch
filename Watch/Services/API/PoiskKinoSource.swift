@@ -41,57 +41,24 @@ final class PoiskKinoSource: ContentSource, @unchecked Sendable {
         if !filter.query.trimmingCharacters(in: .whitespaces).isEmpty {
             return try await suggest(query: filter.query, kind: kind)
         }
-        var c = URLComponents(url: host.appendingPathComponent("\(movieAPI)/movie"),
-                              resolvingAgainstBaseURL: false)!
-        var qi: [URLQueryItem] = [
-            URLQueryItem(name: "page", value: String(max(1, page))),
-            URLQueryItem(name: "limit", value: "30"),
-            URLQueryItem(name: "isSeries", value: kind == .series ? "true" : "false")
-        ]
-        if let from = filter.yearFrom, let to = filter.yearTo {
-            qi.append(URLQueryItem(name: "year", value: "\(from)-\(to)"))
-        } else if let y = filter.yearFrom ?? filter.yearTo {
-            qi.append(URLQueryItem(name: "year", value: String(y)))
-        }
-        for g in filter.genres {
-            qi.append(URLQueryItem(name: "genres.name", value: g))
-        }
-        switch filter.sort {
-        case .rating:
-            qi.append(URLQueryItem(name: "sortField", value: "rating.kp"))
-            qi.append(URLQueryItem(name: "sortType", value: "-1"))
-        case .year:
-            qi.append(URLQueryItem(name: "sortField", value: "year"))
-            qi.append(URLQueryItem(name: "sortType", value: "-1"))
-        case .name:
-            qi.append(URLQueryItem(name: "sortField", value: "name"))
-            qi.append(URLQueryItem(name: "sortType", value: "1"))
-        case .recent:
-            qi.append(URLQueryItem(name: "sortField", value: "createdAt"))
-            qi.append(URLQueryItem(name: "sortType", value: "-1"))
-        case .popularity:
-            qi.append(URLQueryItem(name: "sortField", value: "votes.kp"))
-            qi.append(URLQueryItem(name: "sortType", value: "-1"))
-        }
-        c.queryItems = qi
-        let env: PoiskKinoEnvelope = try await HTTPClient.shared.get(c.url!, as: PoiskKinoEnvelope.self, headers: authHeaders())
-        return env.docs.compactMap { mapDoc($0) }
+        // PoiskKino is a metadata-only source — most popular Western films
+        // it returns have no matching Kodik stream, which manifests as
+        // "Нет источников" the moment the user opens a card. We therefore
+        // only contribute to the catalog grid when a real text query is
+        // being typed; idle browsing falls back to Kodik (which is the
+        // actual stream source and therefore guarantees playability).
+        return []
     }
 
     func popular(kind: ContentKind, limit: Int) async throws -> [ContentItem] {
-        guard supports(kind), AppSecrets.poiskkinoToken.isEmpty == false else { return [] }
-        var c = URLComponents(url: host.appendingPathComponent("\(movieAPI)/movie"),
-                              resolvingAgainstBaseURL: false)!
-        c.queryItems = [
-            URLQueryItem(name: "page", value: "1"),
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "isSeries", value: kind == .series ? "true" : "false"),
-            URLQueryItem(name: "sortField", value: "votes.kp"),
-            URLQueryItem(name: "sortType", value: "-1"),
-            URLQueryItem(name: "rating.kp", value: "7-10")
-        ]
-        let env: PoiskKinoEnvelope = try await HTTPClient.shared.get(c.url!, as: PoiskKinoEnvelope.self, headers: authHeaders())
-        return env.docs.compactMap { mapDoc($0) }
+        // Same rationale as `search` — see comment there. The Home screen's
+        // "Popular" rail used to surface high-vote Western titles that have
+        // no Kodik mirror, so the user got cards that say "Нет источников"
+        // the moment they're tapped. Defer entirely to Kodik for popular
+        // movies/series so the rail only contains items we can actually
+        // play.
+        _ = kind; _ = limit
+        return []
     }
 
     func episodes(for item: ContentItem) async throws -> [Episode] {
