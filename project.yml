@@ -33,8 +33,8 @@ targets:
       path: Watch/Resources/Info.plist
       properties:
         CFBundleDisplayName: Watch
-        CFBundleShortVersionString: "1.4.0"
-        CFBundleVersion: "5"
+        CFBundleShortVersionString: "1.5.0"
+        CFBundleVersion: "6"
         UILaunchScreen:
           UIColorName: ""
         CFBundleURLTypes:
