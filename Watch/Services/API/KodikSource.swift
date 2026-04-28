@@ -172,19 +172,31 @@ final class KodikSource: ContentSource, @unchecked Sendable {
         p["token"] = await KodikTokenResolver.shared.currentToken()
         guard !p["token"]!.isEmpty else { return [] }
 
-        var c = URLComponents(url: api.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        c.queryItems = p.map { URLQueryItem(name: $0.key, value: $0.value) }
+        // Send parameters in the form-encoded POST body rather than URL
+        // query items so the token never appears in HTTPClient's debug log
+        // (`HTTP POST <url>`) or in any upstream proxy access log.
+        let url = api.appendingPathComponent(path)
+        let headers = ["Content-Type": "application/x-www-form-urlencoded"]
 
         do {
-            let envelope: KodikEnvelope = try await HTTPClient.shared.post(c.url!, body: nil, as: KodikEnvelope.self)
+            let envelope: KodikEnvelope = try await HTTPClient.shared.post(
+                url,
+                body: formEncode(p),
+                as: KodikEnvelope.self,
+                headers: headers
+            )
             if let err = envelope.error, err.contains("токен") {
                 // Token went stale mid-session — drop the cache, refresh, retry once.
                 Logger.shared.info("Kodik token rejected, refreshing…", category: .source)
                 await KodikTokenResolver.shared.markInvalid()
                 if let fresh = await KodikTokenResolver.shared.refresh(), !fresh.isEmpty {
                     p["token"] = fresh
-                    c.queryItems = p.map { URLQueryItem(name: $0.key, value: $0.value) }
-                    let retry: KodikEnvelope = try await HTTPClient.shared.post(c.url!, body: nil, as: KodikEnvelope.self)
+                    let retry: KodikEnvelope = try await HTTPClient.shared.post(
+                        url,
+                        body: formEncode(p),
+                        as: KodikEnvelope.self,
+                        headers: headers
+                    )
                     return retry.results ?? []
                 }
                 return []
@@ -193,6 +205,24 @@ final class KodikSource: ContentSource, @unchecked Sendable {
         } catch {
             throw error
         }
+    }
+
+    /// `application/x-www-form-urlencoded` body. Uses `URLQueryAllowed`
+    /// minus reserved chars so commas in `types=film,foreign-movie` survive.
+    private func formEncode(_ params: [String: String]) -> Data? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+")
+        let encoded = params
+            .sorted { $0.key < $1.key }
+            .compactMap { (k, v) -> String? in
+                guard let ek = k.addingPercentEncoding(withAllowedCharacters: allowed),
+                      let ev = v.addingPercentEncoding(withAllowedCharacters: allowed) else {
+                    return nil
+                }
+                return "\(ek)=\(ev)"
+            }
+            .joined(separator: "&")
+        return encoded.data(using: .utf8)
     }
 
     // MARK: - Mapping

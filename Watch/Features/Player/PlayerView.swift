@@ -293,6 +293,13 @@ struct EmbedWebPlayer: UIViewRepresentable {
         // iOS.
         let host = url.host ?? "kodik.cc"
         let parent = "https://\(host == "kodikplayer.com" ? "kodik.cc" : host)/"
+        // HTML-encode the URL before splicing it into the iframe `src`. A
+        // hostile content source could otherwise sneak `"` into the URL
+        // string and break out of the attribute, injecting arbitrary HTML
+        // into the parent shell. (`url.absoluteString` already produces a
+        // %-encoded string for path/query, but `&` still needs to become
+        // `&amp;` to be valid HTML.)
+        let safeSrc = htmlAttrEscape(url.absoluteString)
         let html = """
         <!doctype html>
         <html><head>
@@ -302,10 +309,18 @@ struct EmbedWebPlayer: UIViewRepresentable {
             iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
           </style>
         </head><body>
-          <iframe src="\(url.absoluteString)" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+          <iframe src="\(safeSrc)" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
         </body></html>
         """
         uiView.loadHTMLString(html, baseURL: URL(string: parent))
+    }
+
+    private func htmlAttrEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+         .replacingOccurrences(of: "\"", with: "&quot;")
+         .replacingOccurrences(of: "'", with: "&#39;")
     }
 }
 
