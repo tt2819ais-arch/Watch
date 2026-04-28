@@ -85,8 +85,10 @@ final class PlayerViewModel: ObservableObject {
     func start() {
         installObservers()
         attemptResume()
-        applyPlaybackRate()
-        if !isHTMLEmbed { player.play() }
+        if !isHTMLEmbed {
+            player.play()
+            player.rate = Float(playbackSpeed)
+        }
         scheduleControlsHide()
         Logger.shared.info("Player started: \(item.title) ep \(currentEpisode.number)", category: .player)
     }
@@ -105,7 +107,12 @@ final class PlayerViewModel: ObservableObject {
 
     func togglePlay() {
         if player.rate == 0 {
-            applyPlaybackRate()
+            // Explicit resume: applyPlaybackRate is now a no-op while paused
+            // so quality/voice/speed changes don't auto-resume the player
+            // behind the user's back. Resuming requires going through
+            // player.play() here.
+            player.play()
+            player.rate = Float(playbackSpeed)
         } else {
             player.pause()
         }
@@ -196,8 +203,10 @@ final class PlayerViewModel: ObservableObject {
         currentEpisode = ep
         configureSource(for: ep)
         attemptResume()
-        applyPlaybackRate()
-        if !isHTMLEmbed { player.play() }
+        if !isHTMLEmbed {
+            player.play()
+            player.rate = Float(playbackSpeed)
+        }
     }
 
     func toggleControls() {
@@ -335,7 +344,14 @@ final class PlayerViewModel: ObservableObject {
 
     // MARK: - Internals
 
+    /// Apply the current `playbackSpeed` to the AVPlayer ONLY if it's
+    /// already playing. Setting `player.rate` to a non-zero value on a
+    /// paused player resumes playback, which we want for `togglePlay()`
+    /// (handled there explicitly via `player.play()`) and for the initial
+    /// `start()` / `gotoEpisode()` paths but NOT when the user changes
+    /// quality/voice/speed mid-pause via the controls overlay.
     private func applyPlaybackRate() {
+        guard player.rate != 0 else { return }
         player.rate = Float(playbackSpeed)
     }
 

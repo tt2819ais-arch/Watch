@@ -341,20 +341,47 @@ struct DetailView: View {
 
 struct EpisodeRow: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var progressSvc = ProgressService.shared
     let item: ContentItem
     let episode: Episode
 
+    private var progress: WatchProgress? {
+        progressSvc.progress(for: item.id, episodeID: episode.id)
+    }
+
     var body: some View {
-        let progress = ProgressService.shared.progress(for: item.id, episodeID: episode.id)
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(theme.palette.surfaceElevated)
-                    .frame(width: 56, height: 56)
-                Text("\(episode.number)")
-                    .font(AppFont.title2())
-                    .foregroundStyle(theme.palette.primaryText)
+            // Tappable watched-toggle checkbox in place of the static
+            // episode-number tile. Tapping it flips the "watched" flag for
+            // this episode without opening the player.
+            Button {
+                let watched = progress?.isFinished == true
+                progressSvc.setWatched(
+                    !watched,
+                    itemID: item.id,
+                    episodeID: episode.id,
+                    episodeNumber: episode.number,
+                    duration: Double(episode.durationSeconds ?? 0)
+                )
+            } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(progress?.isFinished == true ? theme.palette.accent : theme.palette.surfaceElevated)
+                        .frame(width: 56, height: 56)
+                    if progress?.isFinished == true {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 22, weight: .heavy))
+                            .foregroundStyle(.white)
+                    } else {
+                        Text("\(episode.number)")
+                            .font(AppFont.title2())
+                            .foregroundStyle(theme.palette.primaryText)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(progress?.isFinished == true ? "Снять отметку \(episode.number)" : "Отметить \(episode.number) как просмотренную")
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.kind == .movie ? (episode.title ?? "Фильм") : "Серия \(episode.number)")
                     .font(AppFont.headline())
