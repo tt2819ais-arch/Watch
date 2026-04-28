@@ -5,6 +5,8 @@ struct CatalogFilter: Equatable {
     var genres: Set<String> = []
     var yearFrom: Int? = nil
     var yearTo: Int? = nil
+    /// Minimum rating (0…10). 0 means "no minimum".
+    var minRating: Double = 0
     var sort: Sort = .popularity
 
     enum Sort: String, CaseIterable, Identifiable {

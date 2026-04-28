@@ -15,6 +15,7 @@ struct FilterSheet: View {
                 VStack(alignment: .leading, spacing: 24) {
                     sortSection
                     yearSection
+                    ratingSection
                     genresSection
                 }
                 .padding(20)
@@ -105,6 +106,22 @@ struct FilterSheet: View {
             .padding(.vertical, 10)
             .background(theme.palette.surface)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    private var ratingSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Минимальный рейтинг")
+                    .font(AppFont.title3())
+                    .foregroundStyle(theme.palette.primaryText)
+                Spacer()
+                Text(draft.minRating > 0 ? String(format: "★ %.1f", draft.minRating) : "Любой")
+                    .font(AppFont.subheadline().weight(.semibold))
+                    .foregroundStyle(theme.palette.secondaryText)
+            }
+            Slider(value: $draft.minRating, in: 0...10, step: 0.5)
+                .tint(theme.palette.accent)
         }
     }
 

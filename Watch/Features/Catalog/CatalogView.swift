@@ -184,7 +184,7 @@ final class CatalogViewModel: ObservableObject {
         // Don't blow away last-known-good results just because a transient
         // cancellation came back empty.
         if !res.isEmpty || items.isEmpty {
-            items = applySort(res)
+            items = applySort(applyClientFilters(res))
             ProfileLookup.shared.register(items)
         }
         loading = false
@@ -194,6 +194,15 @@ final class CatalogViewModel: ObservableObject {
             reloadPending = false
             await forceReload()
         }
+    }
+
+    /// Apply filters that aren't pushed down to source APIs (which often
+    /// don't support rating cutoffs). Items missing a rating value are
+    /// included only when minRating is 0; once the user opts into a
+    /// rating cutoff they almost certainly mean "rated, and ≥ X".
+    private func applyClientFilters(_ list: [ContentItem]) -> [ContentItem] {
+        guard filter.minRating > 0 else { return list }
+        return list.filter { ($0.rating ?? -1) >= filter.minRating }
     }
 
     private func applySort(_ list: [ContentItem]) -> [ContentItem] {
@@ -239,6 +248,9 @@ final class CatalogViewModel: ObservableObject {
         if let from = filter.yearFrom, let to = filter.yearTo { c.append("\(from)–\(to)") }
         else if let from = filter.yearFrom { c.append("≥ \(from)") }
         else if let to = filter.yearTo { c.append("≤ \(to)") }
+        if filter.minRating > 0 {
+            c.append(String(format: "★ ≥ %.1f", filter.minRating))
+        }
         let nameByID = Dictionary(uniqueKeysWithValues: availableGenres.map { ($0.id, $0.name) })
         c.append(contentsOf: filter.genres.map { nameByID[$0] ?? $0 })
         if filter.sort != .popularity { c.append(filter.sort.displayName) }
