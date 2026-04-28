@@ -74,6 +74,13 @@ struct DetailView: View {
             // a duplicate load.
             await vm.loadRelated()
         }
+        .task {
+            // Auto-trailer is best-effort and runs in parallel with the
+            // rest of detail loading. Wait briefly so the hero has time
+            // to settle on the static poster before the trailer fades in.
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await vm.loadTrailer()
+        }
         .sheet(
             isPresented: Binding(
                 get: { if case .preplay = stage { return true } else { return false } },
@@ -224,12 +231,26 @@ struct DetailView: View {
 
     private var hero: some View {
         ZStack(alignment: .bottomLeading) {
-            AsyncImage(url: vm.item.bannerURL ?? vm.item.posterURL) { phase in
-                switch phase {
-                case .success(let img):
-                    img.resizable().scaledToFill()
-                default:
-                    theme.palette.surface
+            ZStack {
+                AsyncImage(url: vm.item.bannerURL ?? vm.item.posterURL) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    default:
+                        theme.palette.surface
+                    }
+                }
+                .frame(height: 360)
+                .clipped()
+
+                // Auto-trailer fades in once PoiskKino resolves a YouTube
+                // trailer URL for this item. Muted, looped, no controls,
+                // no hit-testing — purely a Netflix-style background mood.
+                if let url = vm.trailerURL {
+                    TrailerEmbed(trailerURL: url)
+                        .frame(height: 360)
+                        .clipped()
+                        .transition(.opacity.animation(.easeInOut(duration: 0.6)))
                 }
             }
             .frame(height: 360)
@@ -457,6 +478,7 @@ final class DetailViewModel: ObservableObject {
     @Published var isFavorite: Bool = false
     @Published var related: [ContentItem] = []
     @Published var relatedLoading: Bool = false
+    @Published var trailerURL: URL?
 
     init(item: ContentItem, autoplayEpisodeNumber: Int? = nil) {
         self.item = item
@@ -487,6 +509,24 @@ final class DetailViewModel: ObservableObject {
                 return (lhs.item.rating ?? 0) > (rhs.item.rating ?? 0)
             }
         related = Array(scored.prefix(12).map { $0.item })
+    }
+
+    /// Resolve a YouTube trailer URL via PoiskKino. PoiskKino-sourced
+    /// items already carry a kinopoisk_id as their originalID; for items
+    /// from Kodik (or other sources) we run a quick title+year search to
+    /// find a kinopoisk_id, then fetch the trailer list. Best-effort —
+    /// silently no-ops on miss.
+    func loadTrailer() async {
+        guard trailerURL == nil else { return }
+        guard let pk = ContentSourceRegistry.shared.poiskkino else { return }
+        var kpID: String?
+        if item.sourceID == "poiskkino" {
+            kpID = item.id.split(separator: "|").last.map(String.init)
+        } else {
+            kpID = await pk.resolveKinopoiskID(title: item.title, year: item.year)
+        }
+        guard let resolved = kpID else { return }
+        trailerURL = await pk.trailerURL(forKinopoiskID: resolved)
     }
 
     func loadEpisodes() async {

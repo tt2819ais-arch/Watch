@@ -49,6 +49,12 @@ final class ContentSourceRegistry: ObservableObject {
         sources.filter { $0.supports(kind) }
     }
 
+    /// Convenience accessor for the trailer / kinopoisk-id resolution
+    /// pipeline, which lives on the PoiskKino source.
+    var poiskkino: PoiskKinoSource? {
+        sources.first { $0 is PoiskKinoSource } as? PoiskKinoSource
+    }
+
     /// Aggregates results across all sources that support the given kind.
     /// Each source is bounded by a 12-second timeout so that a single slow
     /// upstream (e.g. poiskkino during an outage) cannot stall the whole

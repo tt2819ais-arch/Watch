@@ -81,6 +81,63 @@ final class PoiskKinoSource: ContentSource, @unchecked Sendable {
 
     // MARK: - Internal
 
+    /// Resolve a YouTube trailer URL for a kinopoisk item by id.
+    /// Returns nil when the source doesn't have a trailer or the API
+    /// call failed — callers must treat this as best-effort.
+    func trailerURL(forKinopoiskID kpID: String) async -> URL? {
+        guard !AppSecrets.poiskkinoToken.isEmpty,
+              let kpInt = Int(kpID) else { return nil }
+        let url = host
+            .appendingPathComponent(movieAPI)
+            .appendingPathComponent("movie")
+            .appendingPathComponent(String(kpInt))
+        do {
+            let dto: PoiskKinoMovieFull = try await HTTPClient.shared.get(
+                url, as: PoiskKinoMovieFull.self, headers: authHeaders())
+            let trailers = dto.videos?.trailers ?? []
+            // Prefer YouTube; fall back to anything with a usable URL
+            let pick = trailers.first(where: { ($0.site ?? "").lowercased() == "youtube" })
+                ?? trailers.first(where: { $0.url != nil })
+            guard let raw = pick?.url, let u = URL(string: raw) else { return nil }
+            return u
+        } catch {
+            return nil
+        }
+    }
+
+    /// Search for the kinopoisk_id of a non-PoiskKino item by title + year.
+    /// Used by the trailer pipeline so Kodik-sourced items can also surface
+    /// a trailer embed without piggy-backing on a kinopoisk_id we already
+    /// know.
+    func resolveKinopoiskID(title: String, year: Int?) async -> String? {
+        guard !AppSecrets.poiskkinoToken.isEmpty else { return nil }
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        var c = URLComponents(url: host.appendingPathComponent("\(movieAPI)/movie/search"),
+                              resolvingAgainstBaseURL: false)!
+        c.queryItems = [
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "limit", value: "10"),
+            URLQueryItem(name: "query", value: trimmed)
+        ]
+        guard let u = c.url else { return nil }
+        do {
+            let env: PoiskKinoEnvelope = try await HTTPClient.shared.get(u, as: PoiskKinoEnvelope.self, headers: authHeaders())
+            // If we know the year, prefer matches within ±1; otherwise the
+            // first hit is our best guess (PoiskKino sorts by relevance).
+            let docs = env.docs
+            let best: PoiskKinoDoc? = {
+                if let y = year {
+                    return docs.first(where: { abs(($0.year ?? 0) - y) <= 1 }) ?? docs.first
+                }
+                return docs.first
+            }()
+            return best.map { String($0.id) }
+        } catch {
+            return nil
+        }
+    }
+
     private func authHeaders() -> [String: String] {
         ["X-API-KEY": AppSecrets.poiskkinoToken]
     }
@@ -152,6 +209,22 @@ private struct PoiskKinoNamed: Decodable {
 private struct PoiskKinoSeasonInfo: Decodable {
     let number: Int?
     let episodesCount: Int?
+}
+
+private struct PoiskKinoMovieFull: Decodable {
+    let id: Int
+    let videos: PoiskKinoVideos?
+}
+
+private struct PoiskKinoVideos: Decodable {
+    let trailers: [PoiskKinoTrailer]?
+}
+
+private struct PoiskKinoTrailer: Decodable {
+    let url: String?
+    let name: String?
+    let site: String?
+    let type: String?
 }
 
 private struct PoiskKinoFieldValue: Decodable {
