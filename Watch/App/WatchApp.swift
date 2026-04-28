@@ -8,6 +8,9 @@ struct WatchApp: App {
     @StateObject private var notifications = NotificationsService.shared
     @UIApplicationDelegateAdaptor(WatchAppDelegate.self) private var appDelegate
 
+    @State private var splashFinished = false
+    @State private var vpnBannerVisible = VPNDetector.isActive()
+
     init() {
         configureAudioSession()
         Logger.shared.info("App launched", category: .app)
@@ -15,23 +18,40 @@ struct WatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environmentObject(theme)
-                .environmentObject(appState)
-                .environmentObject(notifications)
-                .preferredColorScheme(theme.preferredColorScheme)
-                .tint(theme.palette.accent)
-                .background(theme.palette.background.ignoresSafeArea())
-                .onAppear {
-                    UIApplication.shared.isIdleTimerDisabled = false
+            ZStack {
+                RootView()
+                    .environmentObject(theme)
+                    .environmentObject(appState)
+                    .environmentObject(notifications)
+                    .preferredColorScheme(theme.preferredColorScheme)
+                    .tint(theme.palette.accent)
+                    .background(theme.palette.background.ignoresSafeArea())
+                    .overlay(alignment: .top) {
+                        VPNBanner(isVisible: $vpnBannerVisible)
+                            .environmentObject(theme)
+                            .padding(.top, 4)
+                    }
+                    .onAppear {
+                        UIApplication.shared.isIdleTimerDisabled = false
+                    }
+                    // Deep-link handler for `watch://u/<nickname>` (and the
+                    // universal-link shape `https://.../u/<nickname>`). Routes
+                    // the user to the Profile tab and asks `ProfileTabRoot`
+                    // to push the matching `PublicProfileView`.
+                    .onOpenURL { url in
+                        appState.handle(url: url)
+                    }
+
+                if !splashFinished {
+                    SplashView(onFinish: {
+                        splashFinished = true
+                    })
+                    .environmentObject(theme)
+                    .transition(.opacity)
+                    .zIndex(2)
                 }
-                // Deep-link handler for `watch://u/<nickname>` (and the
-                // universal-link shape `https://.../u/<nickname>`). Routes
-                // the user to the Profile tab and asks `ProfileTabRoot`
-                // to push the matching `PublicProfileView`.
-                .onOpenURL { url in
-                    appState.handle(url: url)
-                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: splashFinished)
         }
     }
 

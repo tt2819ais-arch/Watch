@@ -2,10 +2,15 @@ import SwiftUI
 
 /// Bell icon + red unread badge that lives in the trailing edge of every
 /// tab's nav bar. Tapping it opens the inbox drawer.
+///
+/// `AuthService` is intentionally read via the shared singleton instead of
+/// `@EnvironmentObject` to match the rest of the codebase (and to avoid
+/// crashing when the bell is rendered outside of a view hierarchy that
+/// happens to inject the service).
 struct NotificationBell: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var notifications: NotificationsService
-    @EnvironmentObject private var auth: AuthService
+    @ObservedObject private var auth = AuthService.shared
     @State private var showInbox = false
 
     var body: some View {
@@ -41,7 +46,6 @@ struct NotificationBell: View {
                 NotificationInboxView()
                     .environmentObject(theme)
                     .environmentObject(notifications)
-                    .environmentObject(auth)
             }
         }
     }
@@ -54,7 +58,7 @@ struct NotificationBell: View {
 struct NotificationInboxView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var notifications: NotificationsService
-    @EnvironmentObject private var auth: AuthService
+    @ObservedObject private var auth = AuthService.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

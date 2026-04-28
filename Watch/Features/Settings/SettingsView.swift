@@ -51,6 +51,8 @@ struct SettingsView: View {
                     .foregroundStyle(theme.palette.primaryText)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
+
+                versionFooter
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 32)
@@ -438,6 +440,20 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private var versionFooter: some View {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return HStack {
+            Spacer()
+            Text("Watch v\(short) (\(build))")
+                .font(AppFont.caption())
+                .foregroundStyle(theme.palette.secondaryText)
+            Spacer()
+        }
+        .padding(.top, 12)
+    }
 
     private func toggle(_ title: String, on: Binding<Bool>) -> some View {
         HStack {
