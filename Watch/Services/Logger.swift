@@ -47,7 +47,51 @@ final class Logger: @unchecked Sendable {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         fileURL = dir.appendingPathComponent("watch.log")
         ring.reserveCapacity(maxEntries)
+        // Bring forward the previous session's log so the LogsView can show
+        // "Вчера / Сегодня" sections even after the user has relaunched the
+        // app. Keep only the last `maxEntries` lines so the in-memory ring
+        // stays bounded; the on-disk file we leave intact for the user to
+        // copy/share manually.
+        loadPersistedLogs()
         info("Logger initialized — file: \(fileURL.path)", category: .app)
+    }
+
+    private func loadPersistedLogs() {
+        guard let data = try? Data(contentsOf: fileURL),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        // Disk format: `<iso8601> [<level>] [<category>] <message>` per line.
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        var loaded: [Entry] = []
+        loaded.reserveCapacity(min(lines.count, maxEntries))
+        let slice = lines.suffix(maxEntries)
+        for raw in slice {
+            let line = String(raw)
+            // Find first space — separates date from the rest.
+            guard let firstSpace = line.firstIndex(of: " ") else { continue }
+            let dateRaw = String(line[..<firstSpace])
+            guard let date = parser.date(from: dateRaw) else { continue }
+            var rest = line[line.index(after: firstSpace)...]
+            // Level: `[level] `
+            guard rest.hasPrefix("["),
+                  let levelEnd = rest.firstIndex(of: "]") else { continue }
+            let levelRaw = String(rest[rest.index(after: rest.startIndex)..<levelEnd])
+            guard let level = Level(rawValue: levelRaw) else { continue }
+            rest = rest[rest.index(after: levelEnd)...].drop(while: { $0 == " " })
+            // Category: `[category] `
+            guard rest.hasPrefix("["),
+                  let catEnd = rest.firstIndex(of: "]") else { continue }
+            let catRaw = String(rest[rest.index(after: rest.startIndex)..<catEnd])
+            let category = Category(rawValue: catRaw) ?? .app
+            rest = rest[rest.index(after: catEnd)...].drop(while: { $0 == " " })
+            let message = String(rest)
+            loaded.append(Entry(id: UUID(), date: date, level: level, category: category, message: message))
+        }
+        ring = loaded
     }
 
     func debug(_ message: @autoclosure () -> String, category: Category = .app) {
@@ -111,5 +155,19 @@ final class Logger: @unchecked Sendable {
         } else {
             try? data.write(to: fileURL)
         }
+        rotateIfNeeded()
+    }
+
+    /// Cap the on-disk log at ~2 MB; when the file grows past that we
+    /// keep only the second half so logs survive across launches without
+    /// growing unbounded.
+    private func rotateIfNeeded() {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              let size = attrs[.size] as? Int, size > 2_000_000 else { return }
+        guard let data = try? Data(contentsOf: fileURL),
+              let text = String(data: data, encoding: .utf8) else { return }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let kept = lines.suffix(lines.count / 2).joined(separator: "\n")
+        try? kept.data(using: .utf8)?.write(to: fileURL, options: .atomic)
     }
 }

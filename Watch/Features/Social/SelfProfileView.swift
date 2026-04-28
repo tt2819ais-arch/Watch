@@ -46,6 +46,9 @@ struct SelfProfileView: View {
             }
             .background(theme.palette.background.ignoresSafeArea())
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NotificationBell()
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         path.append(SelfProfileDest.settings)

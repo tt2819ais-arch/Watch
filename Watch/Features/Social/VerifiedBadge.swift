@@ -1,13 +1,39 @@
 import SwiftUI
 
 /// Inline blue checkmark next to a nickname for verified accounts.
+///
+/// Regular verified users get a static blue check. Official Watch
+/// accounts get a subtle "breathing" effect — a slow scale + opacity
+/// pulse that loops forever without screaming for attention. The
+/// animation is intentionally low-key (1.6s cycle, ±4% scale) so it
+/// blends into the rest of the UI rather than feeling tacked on.
 struct VerifiedBadge: View {
     let isOfficial: Bool
+
+    @State private var pulse: Bool = false
 
     var body: some View {
         Image(systemName: "checkmark.seal.fill")
             .font(.system(size: 14, weight: .heavy))
             .foregroundStyle(isOfficial ? Color.yellow : Color.blue)
+            .scaleEffect(isOfficial && pulse ? 1.04 : 1.0)
+            .opacity(isOfficial && pulse ? 0.92 : 1.0)
+            .shadow(
+                color: isOfficial
+                    ? Color.yellow.opacity(pulse ? 0.55 : 0.15)
+                    : .clear,
+                radius: pulse ? 4 : 1.5
+            )
+            .animation(
+                isOfficial
+                    ? .easeInOut(duration: 1.6).repeatForever(autoreverses: true)
+                    : .default,
+                value: pulse
+            )
+            .onAppear {
+                guard isOfficial else { return }
+                pulse = true
+            }
             .accessibilityLabel(isOfficial ? "Официальный аккаунт" : "Подтверждённый аккаунт")
     }
 }

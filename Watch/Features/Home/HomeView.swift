@@ -58,6 +58,7 @@ struct HomeView: View {
                 .font(AppFont.largeTitle())
                 .foregroundStyle(theme.palette.primaryText)
             Spacer()
+            NotificationBell()
             Button {
                 randomTarget = vm.randomPick()
             } label: {

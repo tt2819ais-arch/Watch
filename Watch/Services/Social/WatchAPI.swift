@@ -115,6 +115,10 @@ actor WatchAPI {
         return try await request(path, method: "GET", body: Optional<EmptyBody>.none, requiresAuth: true)
     }
 
+    func inbox() async throws -> [InboxEntry] {
+        try await request("/messages/inbox", method: "GET", body: Optional<EmptyBody>.none, requiresAuth: true)
+    }
+
     func sendMessage(to nickname: String,
                      body: String,
                      itemId: String? = nil,

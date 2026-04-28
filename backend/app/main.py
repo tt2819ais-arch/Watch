@@ -25,6 +25,7 @@ from .schemas import (
     ChangePasswordRequest,
     FavoriteIn,
     FavoriteOut,
+    InboxEntry,
     LoginRequest,
     MessageIn,
     MessageOut,
@@ -298,6 +299,62 @@ def stats_online(db: Session = Depends(get_db)) -> OnlineStats:
 
 
 # ---- Messages ---------------------------------------------------------
+
+@app.get("/messages/inbox", response_model=List[InboxEntry], tags=["messages"])
+def messages_inbox(
+    db: Session = Depends(get_db),
+    viewer: User = Depends(get_current_user),
+) -> List[InboxEntry]:
+    """Return one summary per conversation for the in-app bell drawer.
+
+    Conversations are ordered by their most recent message (newest first).
+    `unread_count` is the number of inbound messages that have no
+    `read_at` timestamp yet — clicking the bell entry / opening the
+    conversation will clear it via the existing `GET /messages/<nick>`
+    side effect.
+    """
+    rows = list(
+        db.scalars(
+            select(Message)
+            .where(
+                or_(
+                    Message.sender_id == viewer.id,
+                    Message.recipient_id == viewer.id,
+                ),
+                Message.deleted.is_(False),
+            )
+            .order_by(Message.created_at.desc())
+            .limit(500)
+        )
+    )
+    grouped: dict[int, dict] = {}
+    order: list[int] = []
+    for m in rows:
+        other_id = m.recipient_id if m.sender_id == viewer.id else m.sender_id
+        if other_id not in grouped:
+            grouped[other_id] = {"last": m, "unread": 0}
+            order.append(other_id)
+        if m.recipient_id == viewer.id and m.read_at is None:
+            grouped[other_id]["unread"] += 1
+    out: List[InboxEntry] = []
+    for other_id in order:
+        bucket = grouped[other_id]
+        other = db.get(User, other_id)
+        if other is None:
+            continue
+        if is_blocked_either_way(db, viewer.id, other.id):
+            continue
+        out.append(
+            InboxEntry(
+                other_nickname=other.nickname,
+                other_is_official=other.is_official,
+                other_verified=other.verified,
+                last_message=to_message_out(db, bucket["last"]),
+                unread_count=bucket["unread"],
+            )
+        )
+    return out
+
 
 @app.get("/messages/{nickname}", response_model=List[MessageOut], tags=["messages"])
 def conversation_with(

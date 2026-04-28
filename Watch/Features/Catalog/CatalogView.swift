@@ -54,6 +54,7 @@ struct CatalogView: View {
                 .font(AppFont.largeTitle())
                 .foregroundStyle(theme.palette.primaryText)
             Spacer()
+            NotificationBell()
             sortMenu
             Button {
                 showFilters = true

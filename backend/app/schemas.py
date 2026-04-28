@@ -81,6 +81,15 @@ class MessageOut(BaseModel):
     reactions: List[ReactionOut] = []
 
 
+class InboxEntry(BaseModel):
+    """One conversation summary used to power the in-app bell drawer."""
+    other_nickname: str
+    other_is_official: bool
+    other_verified: bool
+    last_message: MessageOut
+    unread_count: int
+
+
 # ---- Favorites & Stats -------------------------------------------------
 
 class FavoriteIn(BaseModel):

@@ -29,22 +29,46 @@ struct LogsView: View {
 
     private var controlBar: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                ForEach([Logger.Level?.none, .debug, .info, .warn, .error], id: \.self) { lvl in
-                    Button {
-                        filter = lvl
-                    } label: {
-                        Text(lvl?.rawValue.capitalized ?? "Все")
-                            .font(AppFont.caption())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(filter == lvl ? theme.palette.surfaceElevated : theme.palette.surface)
-                            .foregroundStyle(theme.palette.primaryText)
-                            .clipShape(Capsule())
+            // Level chips can overflow on narrow devices, so put them in a
+            // horizontal scroll instead of competing with the action buttons
+            // for space (which used to squash "Копировать" into a single
+            // 1-character-wide column).
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach([Logger.Level?.none, .debug, .info, .warn, .error], id: \.self) { lvl in
+                        Button {
+                            filter = lvl
+                        } label: {
+                            Text(lvl?.rawValue.capitalized ?? "Все")
+                                .font(AppFont.caption())
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(filter == lvl ? theme.palette.surfaceElevated : theme.palette.surface)
+                                .foregroundStyle(theme.palette.primaryText)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-                Spacer()
+                .padding(.horizontal, 1)
+            }
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(theme.palette.secondaryText)
+                    TextField("Фильтр по тексту…", text: $search)
+                        .font(AppFont.subheadline())
+                        .foregroundStyle(theme.palette.primaryText)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(theme.palette.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: .infinity)
+
                 Button {
                     UIPasteboard.general.string = Logger.shared.exportText()
                     copiedFlash = true
@@ -53,40 +77,28 @@ struct LogsView: View {
                         await MainActor.run { copiedFlash = false }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: copiedFlash ? "checkmark" : "doc.on.doc")
-                        Text(copiedFlash ? "Скопировано" : "Копировать")
-                    }
-                    .font(AppFont.subheadline())
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(theme.palette.surface)
-                    .foregroundStyle(theme.palette.primaryText)
-                    .clipShape(Capsule())
+                    Image(systemName: copiedFlash ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 16, weight: .heavy))
+                        .frame(width: 36, height: 36)
+                        .background(theme.palette.surface)
+                        .foregroundStyle(theme.palette.primaryText)
+                        .clipShape(Circle())
                 }
+                .accessibilityLabel(copiedFlash ? "Скопировано" : "Копировать лог")
+
                 Button {
                     Logger.shared.clear()
                     entries = []
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 14, weight: .heavy))
-                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .font(.system(size: 16, weight: .heavy))
+                        .frame(width: 36, height: 36)
                         .background(theme.palette.surface)
                         .foregroundStyle(theme.palette.primaryText)
-                        .clipShape(Capsule())
+                        .clipShape(Circle())
                 }
+                .accessibilityLabel("Очистить логи")
             }
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(theme.palette.secondaryText)
-                TextField("Фильтр по тексту…", text: $search)
-                    .font(AppFont.subheadline())
-                    .foregroundStyle(theme.palette.primaryText)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(theme.palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -101,13 +113,54 @@ struct LogsView: View {
         return arr
     }
 
+    private struct LogSection: Identifiable {
+        let title: String
+        let entries: [Logger.Entry]
+        var id: String { title }
+    }
+
+    private var sections: [LogSection] {
+        let recent = Array(filtered.suffix(800))
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today)!
+        var buckets: [(String, Int, [Logger.Entry])] = []  // (title, sortKey, entries)
+        var byDay: [Date: [Logger.Entry]] = [:]
+        for e in recent {
+            let day = cal.startOfDay(for: e.date)
+            byDay[day, default: []].append(e)
+        }
+        for (day, list) in byDay {
+            let title: String
+            if day == today { title = "Сегодня" }
+            else if day == yesterday { title = "Вчера" }
+            else { title = sectionFormatter.string(from: day) }
+            buckets.append((title, Int(day.timeIntervalSince1970), list))
+        }
+        // Newest day on top.
+        buckets.sort { $0.1 > $1.1 }
+        return buckets.map { LogSection(title: $0.0, entries: $0.2) }
+    }
+
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(filtered.suffix(800)) { e in
-                        row(for: e)
-                            .id(e.id)
+                LazyVStack(alignment: .leading, spacing: 4, pinnedViews: [.sectionHeaders]) {
+                    ForEach(sections) { section in
+                        Section {
+                            ForEach(section.entries) { e in
+                                row(for: e)
+                                    .id(e.id)
+                            }
+                        } header: {
+                            Text(section.title)
+                                .font(AppFont.caption().weight(.semibold))
+                                .foregroundStyle(theme.palette.secondaryText)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(theme.palette.background)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -158,5 +211,12 @@ struct LogsView: View {
 private let timeFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "HH:mm:ss.SSS"
+    return f
+}()
+
+private let sectionFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "ru_RU")
+    f.dateFormat = "d MMMM"
     return f
 }()

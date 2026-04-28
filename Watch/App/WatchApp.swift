@@ -5,6 +5,7 @@ import AVFoundation
 struct WatchApp: App {
     @StateObject private var theme = ThemeManager.shared
     @StateObject private var appState = AppState.shared
+    @StateObject private var notifications = NotificationsService.shared
     @UIApplicationDelegateAdaptor(WatchAppDelegate.self) private var appDelegate
 
     init() {
@@ -17,6 +18,7 @@ struct WatchApp: App {
             RootView()
                 .environmentObject(theme)
                 .environmentObject(appState)
+                .environmentObject(notifications)
                 .preferredColorScheme(theme.preferredColorScheme)
                 .tint(theme.palette.accent)
                 .background(theme.palette.background.ignoresSafeArea())

@@ -76,6 +76,20 @@ struct SocialReaction: Codable, Hashable {
     let emoji: String
 }
 
+// MARK: - Inbox
+
+/// Mirrors the backend's `InboxEntry` (`GET /messages/inbox`). One per
+/// distinct conversation; powers the in-app bell drawer.
+struct InboxEntry: Codable, Hashable, Identifiable {
+    let otherNickname: String
+    let otherIsOfficial: Bool
+    let otherVerified: Bool
+    let lastMessage: SocialMessage
+    let unreadCount: Int
+
+    var id: String { otherNickname.lowercased() }
+}
+
 // MARK: - Auth
 
 struct SocialTokenResponse: Codable {
