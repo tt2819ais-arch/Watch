@@ -171,11 +171,23 @@ def health() -> dict:
 
 # ---- Auth -------------------------------------------------------------
 
+# Nicknames reserved because they collide with static `/messages/<sub>` and
+# `/users/<sub>` routes registered above the dynamic `/messages/{nickname}`
+# / `/users/{nickname}` matchers. Letting a user register one of these
+# names would silently shadow their conversation/profile endpoints.
+# `block` is NOT included because `/messages/block/<nickname>` requires a
+# trailing segment, so a bare `/messages/block` correctly routes to the
+# dynamic conversation endpoint.
+RESERVED_NICKNAMES = frozenset({"inbox", "me", "count", "admin"})
+
+
 @app.post("/auth/signup", response_model=TokenResponse, tags=["auth"])
 def signup(body: SignupRequest, db: Session = Depends(get_db)) -> TokenResponse:
     nick = body.nickname.strip()
     if not nick:
         raise HTTPException(status_code=400, detail="nickname required")
+    if nick.lower() in RESERVED_NICKNAMES:
+        raise HTTPException(status_code=400, detail="Этот никнейм зарезервирован, выберите другой")
     existing = db.scalar(select(User).where(User.nickname_lower == nick.lower()))
     if existing:
         raise HTTPException(status_code=409, detail="Никнейм уже занят")
