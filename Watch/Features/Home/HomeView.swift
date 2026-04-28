@@ -16,6 +16,11 @@ struct HomeView: View {
                             ContinueWatchingRow(progressItems: vm.continueWatching)
                         }
                     }
+                    if !vm.top10.isEmpty {
+                        section(title: "Топ-10 этой недели") {
+                            Top10Row(items: vm.top10)
+                        }
+                    }
                     section(title: "Популярное аниме") {
                         contentRow(items: vm.popularAnime)
                     }
@@ -109,6 +114,7 @@ final class HomeViewModel: ObservableObject {
     @Published var popularMovies: [ContentItem] = []
     @Published var popularSeries: [ContentItem] = []
     @Published var continueWatching: [WatchProgress] = []
+    @Published var top10: [ContentItem] = []
     @Published var itemsByID: [String: ContentItem] = [:]
 
     private var didLoadOnce = false
@@ -130,6 +136,24 @@ final class HomeViewModel: ObservableObject {
         async let series: Void = loadKind(.series, into: \.popularSeries)
         _ = await (anime, movies, series)
         continueWatching = Array(ProgressService.shared.lastWatched.prefix(10))
+        // "Top 10 this week" picks the highest-rated items across kinds.
+        // No timestamp on the items themselves so we can't filter by week
+        // here — the popular-feed itself already biases toward recent
+        // popularity (each source's popular() returns trending content),
+        // and we add a stable rating tie-break so the ranking doesn't
+        // shuffle on every reload.
+        let pool = popularAnime + popularMovies + popularSeries
+        top10 = Array(
+            pool
+                .filter { ($0.rating ?? 0) > 0 }
+                .sorted { lhs, rhs in
+                    let lr = lhs.rating ?? 0
+                    let rr = rhs.rating ?? 0
+                    if lr != rr { return lr > rr }
+                    return lhs.id < rhs.id
+                }
+                .prefix(10)
+        )
         didLoadOnce = true
     }
 
