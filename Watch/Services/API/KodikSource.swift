@@ -16,7 +16,13 @@ final class KodikSource: ContentSource, @unchecked Sendable {
     func suggest(query: String, kind: ContentKind) async throws -> [ContentItem] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return [] }
-        let raw = try await search(parameters: ["title": trimmed, "limit": "20"])
+        let raw = try await search(parameters: [
+            "title": trimmed,
+            "limit": "20",
+            // Without `with_material_data` Kodik omits poster URLs, so the
+            // search-suggestion row renders blank placeholders.
+            "with_material_data": "true"
+        ])
         return raw.compactMap { mapToItem($0, kind: kind) }
     }
 
